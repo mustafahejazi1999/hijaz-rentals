@@ -1,0 +1,2621 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>عمارات الحجاز — إدارة إيجارات ٢٠٢٦</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  html, body { margin: 0; padding: 0; background: #F6F2EA; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-app.js";
+  import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-database.js";
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.16.0/firebase-auth.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyD-z8in8GSzWTqXQfp42kduZQ6ST8y0g1g",
+    authDomain: "hijaz-rentals.firebaseapp.com",
+    databaseURL: "https://hijaz-rentals-default-rtdb.firebaseio.com",
+    projectId: "hijaz-rentals",
+    storageBucket: "hijaz-rentals.firebasestorage.app",
+    messagingSenderId: "411048123495",
+    appId: "1:411048123495:web:611116aff4377fc0df08c2",
+    measurementId: "G-P7M0DYE209"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getDatabase(app);
+  const auth = getAuth(app);
+
+  window.__firebase = { db, ref, get, set, auth, signInWithEmailAndPassword, onAuthStateChanged, signOut };
+</script>
+
+<script type="text/babel" data-presets="react">
+
+const { useState, useEffect, useMemo, useRef } = React;
+
+const storage = {
+  async get(key) {
+    try {
+      const { db, ref, get } = window.__firebase;
+      const snap = await get(ref(db, key));
+      if (!snap.exists()) return null;
+      return { key, value: snap.val() };
+    } catch (e) { return null; }
+  },
+  async set(key, value) {
+    try {
+      const { db, ref, set } = window.__firebase;
+      await set(ref(db, key), value);
+      return { key, value };
+    } catch (e) { return null; }
+  },
+};
+
+function useFirebaseReady() {
+  const [ready, setReady] = useState(!!window.__firebase);
+  useEffect(() => {
+    if (window.__firebase) { setReady(true); return; }
+    const id = setInterval(() => {
+      if (window.__firebase) { setReady(true); clearInterval(id); }
+    }, 50);
+    return () => clearInterval(id);
+  }, []);
+  return ready;
+}
+
+function LoginScreen({ onLogin, error, busy }) {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  return (
+    <div dir="rtl" style={{ minHeight: "100vh", background: "#F6F2EA", fontFamily: "'Tajawal', 'Segoe UI', Tahoma, sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 28, width: "100%", maxWidth: 360, border: "1px solid #E4DBC8" }}>
+        <div style={{ fontWeight: 900, fontSize: 18, color: "#12312D", marginBottom: 4 }}>عمارات الحجاز</div>
+        <div style={{ fontSize: 12.5, color: "#71685C", marginBottom: 20 }}>سجّلي دخول للمتابعة</div>
+        <div style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 11.5, color: "#71685C", marginBottom: 4, fontWeight: 600 }}>البريد الإلكتروني</div>
+          <input value={email} onChange={(e) => setEmail(e.target.value)} type="email" style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #E4DBC8", fontSize: 13.5 }} />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11.5, color: "#71685C", marginBottom: 4, fontWeight: 600 }}>كلمة السر</div>
+          <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" style={{ width: "100%", padding: "10px 12px", borderRadius: 8, border: "1px solid #E4DBC8", fontSize: 13.5 }}
+            onKeyDown={(e) => { if (e.key === "Enter") onLogin(email, password); }} />
+        </div>
+        {error && <div style={{ color: "#A6402F", fontSize: 12, marginBottom: 10 }}>{error}</div>}
+        <button
+          onClick={() => onLogin(email, password)}
+          disabled={busy || !email || !password}
+          style={{ width: "100%", padding: "11px", borderRadius: 9, border: "none", background: "#1D4B45", color: "#fff", fontWeight: 700, fontSize: 14, opacity: busy ? 0.7 : 1 }}
+        >
+          {busy ? "جارٍ الدخول..." : "دخول"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AuthGate() {
+  const fbReady = useFirebaseReady();
+  const [user, setUser] = useState(undefined); // undefined = checking, null = signed out
+  const [loginError, setLoginError] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!fbReady) return;
+    const { auth, onAuthStateChanged } = window.__firebase;
+    const unsub = onAuthStateChanged(auth, (u) => setUser(u || null));
+    return () => unsub && unsub();
+  }, [fbReady]);
+
+  async function handleLogin(email, password) {
+    setBusy(true);
+    setLoginError("");
+    try {
+      const { auth, signInWithEmailAndPassword } = window.__firebase;
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (e) {
+      setLoginError("الإيميل أو كلمة السر غير صحيحة.");
+    }
+    setBusy(false);
+  }
+
+  function handleLogout() {
+    const { auth, signOut } = window.__firebase;
+    signOut(auth);
+  }
+
+  if (!fbReady || user === undefined) {
+    return (
+      <div style={{ minHeight: "100vh", background: "#F6F2EA", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Tajawal', 'Segoe UI', Tahoma, sans-serif" }}>
+        <div style={{ color: "#20302E", fontSize: 15 }}>...جاري التحقق</div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginScreen onLogin={handleLogin} error={loginError} busy={busy} />;
+  }
+
+  return <App onLogout={handleLogout} />;
+}
+
+function makeIcon(symbol) {
+  return function Icon({ size = 16, color, style = {} }) {
+    return <span style={{ fontSize: size, lineHeight: 1, display: "inline-block", ...style }}>{symbol}</span>;
+  };
+}
+const Building2 = makeIcon("🏢");
+const Search = makeIcon("🔍");
+const Plus = makeIcon("➕");
+const Wallet = makeIcon("💰");
+const Pencil = makeIcon("✏️");
+const X = makeIcon("✕");
+const Check = makeIcon("✓");
+const AlertCircle = makeIcon("⚠️");
+const FileBarChart2 = makeIcon("📊");
+const LayoutDashboard = makeIcon("📋");
+const Receipt = makeIcon("🧾");
+const Phone = makeIcon("📞");
+const CreditCard = makeIcon("💳");
+const CalendarDays = makeIcon("📅");
+const DoorOpen = makeIcon("🚪");
+const ArrowLeftRight = makeIcon("🔁");
+const Banknote = makeIcon("💵");
+const Smartphone = makeIcon("📱");
+const Trash2 = makeIcon("🗑️");
+const History = makeIcon("📜");
+const MessageCircle = makeIcon("💬");
+const LogOut = makeIcon("🚪");
+const ImagePlus = makeIcon("🖼️");
+const FileText = makeIcon("📄");
+const Printer = makeIcon("🖨️");
+const TrendingUp = makeIcon("📈");
+const TrendingDown = makeIcon("📉");
+const FileSpreadsheet = makeIcon("📗");
+const ClipboardCheck = makeIcon("✅");
+const ShoppingCart = makeIcon("🛒");
+const Download = makeIcon("⬇️");
+const Upload = makeIcon("⬆️");
+
+const SEED = {"building1": {"name": "عمارة الحجاز الأولى", "rooms": [{"id": "b1-101-2-0", "room": "101-2", "vacant": false, "tenant": {"name": "زمان اصف", "idNumber": "2539760179", "phone": "567083027", "contract": "1279", "dueDate": "2025-11-01", "rent": 1100.0}, "balance": 4400.0, "lastPaymentDate": "2026-06-04", "payments": [], "history": []}, {"id": "b1-102-1-1", "room": "102-1", "vacant": false, "tenant": {"name": "محمد سليمان سليمان", "idNumber": "2279602784", "phone": "544420809", "contract": "654", "dueDate": "2025-10-27", "rent": 750.0}, "balance": 2900.0, "lastPaymentDate": "2026-06-28", "payments": [], "history": []}, {"id": "b1-103-1-2", "room": "103-1", "vacant": false, "tenant": {"name": "بسام الشيخ محمد", "idNumber": "2914358523", "phone": "500330982", "contract": "1082", "dueDate": "2025-12-02", "rent": 700.0}, "balance": 1400.0, "lastPaymentDate": "2026-07-02", "payments": [], "history": []}, {"id": "b1-104-3-3", "room": "104-3", "vacant": false, "tenant": {"name": "محمد صلال زايد", "idNumber": "106398888", "phone": "569703102", "contract": "1367", "dueDate": "2026-08-14", "rent": 1300.0}, "balance": 2600.0, "lastPaymentDate": "2026-06-13", "payments": [], "history": ["عبيد عبدالله مولى", "خان نواز"]}, {"id": "b1-105-1-4", "room": "105-1", "vacant": false, "tenant": {"name": "شيرمياه", "idNumber": "2542172412", "phone": "596723953", "contract": "1373", "dueDate": "2026-08-10", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-09", "payments": [], "history": ["بيليت يونس", "محسن ماهين"]}, {"id": "b1-106-3-5", "room": "106-3", "vacant": false, "tenant": {"name": "نيش ريمان الله", "idNumber": "2539646246", "phone": "590336340", "contract": "1256", "dueDate": "2025-10-10", "rent": 1200.0}, "balance": 2400.0, "lastPaymentDate": "2026-06-11", "payments": [], "history": []}, {"id": "b1-107-1-6", "room": "107-1", "vacant": false, "tenant": {"name": "مرسلين مرسلين", "idNumber": "2604812004", "phone": "563917439", "contract": "1364", "dueDate": "2026-08-04", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-09", "payments": [], "history": ["عبدالرحيم علي", "ابرار خان"]}, {"id": "b1-108-1-7", "room": "108-1", "vacant": false, "tenant": {"name": "عبد الرحيم بابكر", "idNumber": "2166165098", "phone": "550185813", "contract": "1060", "dueDate": "2026-08-07", "rent": 730.0}, "balance": 730.0, "lastPaymentDate": "2026-07-06", "payments": [], "history": []}, {"id": "b1-109-1-8", "room": "109-1", "vacant": true, "tenant": {"name": "", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": []}, {"id": "b1-110-3-9", "room": "110-3", "vacant": false, "tenant": {"name": "مكتب", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": []}, {"id": "b1-111-1-10", "room": "111-1", "vacant": false, "tenant": {"name": "محمود اسماعيل غانم", "idNumber": "2531688345", "phone": "549140441", "contract": "1153", "dueDate": "2025-10-03", "rent": 750.0}, "balance": 850.0, "lastPaymentDate": "2026-06-29", "payments": [], "history": []}, {"id": "b1-201-1-11", "room": "201-1", "vacant": false, "tenant": {"name": "عبد الرحيم", "idNumber": "2226535801", "phone": "572143759", "contract": "1385", "dueDate": "2026-08-14", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-11", "payments": [], "history": ["نيش ريمان الله", "محمد محمود قطب", "عبد الله اسلام"]}, {"id": "b1-202-3-12", "room": "202-3", "vacant": true, "tenant": {"name": "", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["عطا عارف", "بلال اكرم"]}, {"id": "b1-203-1-13", "room": "203-1", "vacant": false, "tenant": {"name": "كريم الطوخي", "idNumber": "2103982589", "phone": "560950464", "contract": "1472", "dueDate": "2025-12-05", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-05", "payments": [], "history": []}, {"id": "b1-204-1-14", "room": "204-1", "vacant": false, "tenant": {"name": "عصام ادريس", "idNumber": "2468593427", "phone": "554604697", "contract": "1183", "dueDate": "2025-08-01", "rent": 700.0}, "balance": 3600.0, "lastPaymentDate": "2026-07-02", "payments": [], "history": []}, {"id": "b1-205-1-15", "room": "205-1", "vacant": false, "tenant": {"name": "احمد عبدالخالق", "idNumber": "2606389381", "phone": "561400931", "contract": "1380", "dueDate": "2026-08-06", "rent": 1100.0}, "balance": 2200.0, "lastPaymentDate": "2026-07-04", "payments": [], "history": ["بلال"]}, {"id": "b1-206-1-16", "room": "206-1", "vacant": false, "tenant": {"name": "عبد الرحيم عبد المجيد", "idNumber": "2378873810", "phone": "592678356", "contract": "1375", "dueDate": "2026-08-01", "rent": 1100.0}, "balance": 1100.0, "lastPaymentDate": "2026-06-27", "payments": [], "history": ["امجد حسين"]}, {"id": "b1-207-3-17", "room": "207-3", "vacant": false, "tenant": {"name": "زيشان جاويد اكرام", "idNumber": "2483715815", "phone": "556937754", "contract": "1391", "dueDate": "2026-08-23", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["رضوان"]}, {"id": "b1-208-1-18", "room": "208-1", "vacant": false, "tenant": {"name": "مصطفى غنام", "idNumber": "2202199259", "phone": "533405811", "contract": "1354", "dueDate": "2026-08-01", "rent": 1000.0}, "balance": 1000.0, "lastPaymentDate": "2026-07-04", "payments": [], "history": ["محمد الجدعاني"]}, {"id": "b1-209-3-19", "room": "209-3", "vacant": false, "tenant": {"name": "مصطفى محمد", "idNumber": "2096599507", "phone": "541073245", "contract": "1486", "dueDate": "2025-12-05", "rent": 1200.0}, "balance": 1200.0, "lastPaymentDate": "2026-07-05", "payments": [], "history": []}, {"id": "b1-210-1-20", "room": "210-1", "vacant": false, "tenant": {"name": "محمد حماد الدين", "idNumber": "2565811490", "phone": "560518019", "contract": "1366", "dueDate": "2026-08-12", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-12", "payments": [], "history": ["رقيب"]}, {"id": "b1-211-1-21", "room": "211-1", "vacant": true, "tenant": {"name": "", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["عاصم عب الواحد"]}, {"id": "b1-212-3-22", "room": "212-3", "vacant": false, "tenant": {"name": "شيخ فريد مهر النساء", "idNumber": "2246808923", "phone": "538373427", "contract": "1390", "dueDate": "2026-08-20", "rent": 1500.0}, "balance": 1500.0, "lastPaymentDate": "2026-07-16", "payments": [], "history": []}, {"id": "b1-213-1-23", "room": "213-1", "vacant": true, "tenant": {"name": "", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["إبراهيم ادم محمد", "ابرار خان"]}, {"id": "b1-301-1-24", "room": "301-1", "vacant": false, "tenant": {"name": "ظهير صديقي", "idNumber": "2565522725", "phone": "543710160", "contract": "1210", "dueDate": "2025-11-05", "rent": 700.0}, "balance": 100.0, "lastPaymentDate": "2026-07-05", "payments": [], "history": []}, {"id": "b1-302-3-25", "room": "302-3", "vacant": false, "tenant": {"name": "محمد ابراهيم", "idNumber": "2528761055", "phone": "575224320", "contract": "1268", "dueDate": "2025-11-26", "rent": 1300.0}, "balance": 2600.0, "lastPaymentDate": "2026-06-27", "payments": [], "history": []}, {"id": "b1-303-1-26", "room": "303-1", "vacant": false, "tenant": {"name": "فروخ خان", "idNumber": "2558372898", "phone": "575207876", "contract": "1331", "dueDate": "2026-02-13", "rent": 1200.0}, "balance": 4600.0, "lastPaymentDate": "2026-03-14", "payments": [], "history": []}, {"id": "b1-304-1-27", "room": "304-1", "vacant": false, "tenant": {"name": "أبو بكر", "idNumber": "2571023841", "phone": "599380157", "contract": "1351", "dueDate": "2026-08-18", "rent": 750.0}, "balance": 1500.0, "lastPaymentDate": "2026-06-15", "payments": [], "history": ["امتياز"]}, {"id": "b1-305-1-28", "room": "305-1", "vacant": false, "tenant": {"name": "هاني قنديل", "idNumber": "2003397649", "phone": "533882610", "contract": "1357", "dueDate": "2026-07-11", "rent": 800.0}, "balance": 1600.0, "lastPaymentDate": "2026-06-28", "payments": [], "history": []}, {"id": "b1-306-1-29", "room": "306-1", "vacant": false, "tenant": {"name": "مازين عبد الجليلبندركار", "idNumber": "2567196072", "phone": "559412538", "contract": "1368", "dueDate": "2026-08-14", "rent": 1200.0}, "balance": 0, "lastPaymentDate": "2026-06-13", "payments": [], "history": ["حازم", "امانت ارشد", "شيخ نور شاه", "حاتم سليمان", "سجاد خان"]}, {"id": "b1-307-3-30", "room": "307-3", "vacant": false, "tenant": {"name": "احمد الدوسري", "idNumber": "1009991264", "phone": "552296993", "contract": "667", "dueDate": "2025-01-04", "rent": 1300.0}, "balance": 4050.0, "lastPaymentDate": "2026-07-06", "payments": [], "history": []}, {"id": "b1-308-1-31", "room": "308-1", "vacant": false, "tenant": {"name": "عبدالله عبدالرحمن", "idNumber": "2470912185", "phone": "507424656", "contract": "1176", "dueDate": "2025-11-25", "rent": 750.0}, "balance": 2250.0, "lastPaymentDate": "2026-06-28", "payments": [], "history": []}, {"id": "b1-309-32", "room": "309", "vacant": false, "tenant": {"name": "محمد وسيم", "idNumber": "2471361705", "phone": "598033795", "contract": "1383", "dueDate": "2026-08-15", "rent": 1250.0}, "balance": 0, "lastPaymentDate": "2026-07-07", "payments": [], "history": ["يحيى خضري"]}, {"id": "b1-310-1-33", "room": "310-1", "vacant": false, "tenant": {"name": "فايز المحمادي", "idNumber": "108624882", "phone": "595310101", "contract": "48", "dueDate": "2025-12-01", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-04", "payments": [], "history": []}, {"id": "b1-311-1-34", "room": "311-1", "vacant": false, "tenant": {"name": "ابرار خان", "idNumber": "2540703176", "phone": "599685719", "contract": "1223", "dueDate": "2026-08-15", "rent": 900.0}, "balance": 900.0, "lastPaymentDate": "2026-06-15", "payments": [], "history": ["محمد امين محمود"]}, {"id": "b1-312-3-35", "room": "312-3", "vacant": false, "tenant": {"name": "علي الرشيدي", "idNumber": "2250916164", "phone": "557718013", "contract": "967", "dueDate": "2026-08-08", "rent": 1200.0}, "balance": 1200.0, "lastPaymentDate": "2026-07-08", "payments": [], "history": []}, {"id": "b1-313-1-36", "room": "313-1", "vacant": false, "tenant": {"name": "ماهر نوفل", "idNumber": "2125152088", "phone": "530617056", "contract": "1309", "dueDate": "2026-07-04", "rent": 1200.0}, "balance": 2400.0, "lastPaymentDate": "2026-06-07", "payments": [], "history": []}, {"id": "b1-401-1-37", "room": "401-1", "vacant": true, "tenant": {"name": "", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["مهند"]}, {"id": "b1-402-1-38", "room": "402-1", "vacant": false, "tenant": {"name": "عبد القادر", "idNumber": "2634132308", "phone": "551384955", "contract": "1353", "dueDate": "2026-08-10", "rent": 900.0}, "balance": 2700.0, "lastPaymentDate": "1902-07-04", "payments": [], "history": ["محمد جارال", "عمران"]}, {"id": "b1-403-1-39", "room": "403-1", "vacant": false, "tenant": {"name": "امانه علي راشد", "idNumber": "2586916211", "phone": "563525668", "contract": "1369", "dueDate": "2026-08-15", "rent": 700.0}, "balance": 0, "lastPaymentDate": "2026-07-18", "payments": [], "history": ["هيثم"]}, {"id": "b1-404-3-40", "room": "404-3", "vacant": false, "tenant": {"name": "امجد", "idNumber": "2545419802", "phone": "511251730", "contract": "1372", "dueDate": "2026-08-01", "rent": 1200.0}, "balance": 2400.0, "lastPaymentDate": "2026-06-27", "payments": [], "history": ["أبو عبيدة محمد"]}, {"id": "b1-405-2-41", "room": "405-2", "vacant": false, "tenant": {"name": "ابو فارس", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": []}, {"id": "b1-406-2-42", "room": "406-2", "vacant": false, "tenant": {"name": "حسين عبيد", "idNumber": "2509201667", "phone": "568224353", "contract": "1361", "dueDate": "2026-08-02", "rent": 1350.0}, "balance": 1350.0, "lastPaymentDate": "2026-07-02", "payments": [], "history": ["عريف حسين"]}]}, "building2": {"name": "عمارة الحجاز الثانية", "rooms": [{"id": "b2-101-1-0", "room": "101-1", "vacant": false, "tenant": {"name": "اقبال اقبال", "idNumber": "2463678637", "phone": "590532624", "contract": "1376", "dueDate": "2026-08-02", "rent": 1000.0}, "balance": 0, "lastPaymentDate": "2026-07-01", "payments": [], "history": ["تبارك حسين", "احمد طارق"]}, {"id": "b2-102-2-1", "room": "102-2", "vacant": false, "tenant": {"name": "احمد", "idNumber": "2510524677", "phone": "530795806", "contract": "1456", "dueDate": "2025-08-27", "rent": 1300.0}, "balance": 8700.0, "lastPaymentDate": "2026-06-15", "payments": [], "history": []}, {"id": "b2-103-1-2", "room": "103-1", "vacant": false, "tenant": {"name": "عادل السيد غرابيلي", "idNumber": "2580529622", "phone": "547949567", "contract": "1389", "dueDate": "2026-08-19", "rent": 1100.0}, "balance": 1100.0, "lastPaymentDate": "2026-07-16", "payments": [], "history": ["حسنين بايغ", "عبد الباسط احمد"]}, {"id": "b2-104-3-3", "room": "104-3", "vacant": false, "tenant": {"name": "جهانجير حسين", "idNumber": "2392238636", "phone": "531129852", "contract": "1360", "dueDate": "2026-07-01", "rent": 1300.0}, "balance": 1300.0, "lastPaymentDate": "2026-07-01", "payments": [], "history": []}, {"id": "b2-105-2-4", "room": "105-2", "vacant": false, "tenant": {"name": "احمد محمد", "idNumber": "2523166102", "phone": "551869752", "contract": "1348", "dueDate": "", "rent": 1000.0}, "balance": 3800.0, "lastPaymentDate": "2026-05-20", "payments": [], "history": []}, {"id": "b2-106-1-5", "room": "106-1", "vacant": false, "tenant": {"name": "عمران احمد يونس", "idNumber": "2311987735", "phone": "572389561", "contract": "1386", "dueDate": "2026-08-13", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-11", "payments": [], "history": ["مصطفى عمر"]}, {"id": "b2-107-1-6", "room": "107-1", "vacant": false, "tenant": {"name": "تدكو", "idNumber": "", "phone": "", "contract": "", "dueDate": "2025-05-03", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": []}, {"id": "b2-108-2-7", "room": "108-2", "vacant": false, "tenant": {"name": "عطالله خان", "idNumber": "2528189307", "phone": "583185442", "contract": "1466", "dueDate": "2025-10-03", "rent": 1100.0}, "balance": 1100.0, "lastPaymentDate": "2026-07-12", "payments": [], "history": []}, {"id": "b2-109-2-8", "room": "109-2", "vacant": false, "tenant": {"name": "علي عبدالله", "idNumber": "2519680181", "phone": "591635297", "contract": "1359", "dueDate": "2026-08-01", "rent": 1100.0}, "balance": 1100.0, "lastPaymentDate": "2026-07-13", "payments": [], "history": ["الياس اقبال"]}, {"id": "b2-110-2-9", "room": "110-2", "vacant": false, "tenant": {"name": "محمد افضل مشتاق", "idNumber": "2227079916", "phone": "595408039", "contract": "1387", "dueDate": "2026-08-13", "rent": 1200.0}, "balance": 1200.0, "lastPaymentDate": "2026-07-11", "payments": [], "history": ["مختار محمد أبو عيسى", "محمد شهباز شفيق"]}, {"id": "b2-201-1-10", "room": "201-1", "vacant": false, "tenant": {"name": "مدين منصور", "idNumber": "2290035407", "phone": "530266711", "contract": "1307", "dueDate": "2026-08-01", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-12", "payments": [], "history": []}, {"id": "b2-202-2-11", "room": "202-2", "vacant": false, "tenant": {"name": "اختر", "idNumber": "2269289316", "phone": "599346006", "contract": "1462", "dueDate": "2026-05-20", "rent": 1100.0}, "balance": 2200.0, "lastPaymentDate": "2026-06-21", "payments": [], "history": ["محمد شفيع"]}, {"id": "b2-203-1-12", "room": "203-1", "vacant": false, "tenant": {"name": "عبدالله موسى", "idNumber": "2438128585", "phone": "576280467", "contract": "1383", "dueDate": "2026-07-05", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-06", "payments": [], "history": ["محمد علوان"]}, {"id": "b2-204-3-13", "room": "204-3", "vacant": false, "tenant": {"name": "ثامر الزهراني", "idNumber": "1058746908", "phone": "505527656", "contract": "444", "dueDate": "2025-03-03", "rent": 1200.0}, "balance": 9600.0, "lastPaymentDate": "", "payments": [], "history": []}, {"id": "b2-205-2-14", "room": "205-2", "vacant": false, "tenant": {"name": "صالح الزهراني", "idNumber": "1034504016", "phone": "504494878", "contract": "الكتروني", "dueDate": "2025-12-01", "rent": 1100.0}, "balance": 7200.0, "lastPaymentDate": "2026-04-14", "payments": [], "history": []}, {"id": "b2-206-1-15", "room": "206-1", "vacant": false, "tenant": {"name": "اشرف الفقي", "idNumber": "2526372063", "phone": "548084989", "contract": "1467", "dueDate": "2026-08-05", "rent": 750.0}, "balance": 1500.0, "lastPaymentDate": "2026-02-27", "payments": [], "history": []}, {"id": "b2-207-1-16", "room": "207-1", "vacant": true, "tenant": {"name": "", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["احمد سيد عمر", "اشفاق اكير"]}, {"id": "b2-208-3-17", "room": "208-3", "vacant": false, "tenant": {"name": "فيزان غلام حسين", "idNumber": "2398330460", "phone": "558159818", "contract": "1392", "dueDate": "2026-08-25", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["سهيل مولى"]}, {"id": "b2-209-1-18", "room": "209-1", "vacant": false, "tenant": {"name": "محمد حسين محمد", "idNumber": "2493886465", "phone": "550618329", "contract": "1213", "dueDate": "2025-09-01", "rent": 750.0}, "balance": 3590.0, "lastPaymentDate": "2026-05-19", "payments": [], "history": []}, {"id": "b2-210-1-19", "room": "210-1", "vacant": false, "tenant": {"name": "رشيد العنسي", "idNumber": "2506830815", "phone": "577132631", "contract": "1174", "dueDate": "2026-07-23", "rent": 700.0}, "balance": 1400.0, "lastPaymentDate": "2026-06-24", "payments": [], "history": []}, {"id": "b2-211-2-20", "room": "211-2", "vacant": false, "tenant": {"name": "احمد محمود تبعي", "idNumber": "2462619889", "phone": "563725405", "contract": "1202", "dueDate": "2026-08-01", "rent": 1150.0}, "balance": 1150.0, "lastPaymentDate": "2026-07-05", "payments": [], "history": []}, {"id": "b2-301-1-21", "room": "301-1", "vacant": false, "tenant": {"name": "عبدالله مدار مان", "idNumber": "2608462673", "phone": "530245635", "contract": "1377", "dueDate": "2026-07-06", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-01", "payments": [], "history": ["عبدالله"]}, {"id": "b2-302-2-22", "room": "302-2", "vacant": false, "tenant": {"name": "جمال علوان", "idNumber": "2534693359", "phone": "563087957", "contract": "1192", "dueDate": "2025-11-27", "rent": 1000.0}, "balance": 1000.0, "lastPaymentDate": "2026-06-30", "payments": [], "history": []}, {"id": "b2-303-1-23", "room": "303-1", "vacant": false, "tenant": {"name": "عبدالله باحمد", "idNumber": "2568393520", "phone": "538830216", "contract": "1358", "dueDate": "2026-07-22", "rent": 800.0}, "balance": 1600.0, "lastPaymentDate": "2026-06-22", "payments": [], "history": ["أبو زاهد"]}, {"id": "b2-304-3-24", "room": "304-3", "vacant": false, "tenant": {"name": "جعفر تدكو", "idNumber": "", "phone": "", "contract": "", "dueDate": "2025-03-05", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": []}, {"id": "b2-305-2-25", "room": "305-2", "vacant": true, "tenant": {"name": "", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["اختر قربان"]}, {"id": "b2-306-1-26", "room": "306-1", "vacant": false, "tenant": {"name": "زيدان زايد شهبين", "idNumber": "2577780865", "phone": "558415196", "contract": "1362", "dueDate": "2026-08-02", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-07", "payments": [], "history": ["موكي مولى", "شمشير"]}, {"id": "b2-307-1-27", "room": "307-1", "vacant": false, "tenant": {"name": "شيخ مشتاق خورشيد", "idNumber": "2246922609", "phone": "561913813", "contract": "1382", "dueDate": "2026-08-10", "rent": 800.0}, "balance": 800.0, "lastPaymentDate": "2026-07-07", "payments": [], "history": ["اويل شمشير"]}, {"id": "b2-308-3-28", "room": "308-3", "vacant": true, "tenant": {"name": "", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["ماهر السيد علي", "زمان علي"]}, {"id": "b2-309-1-29", "room": "309-1", "vacant": false, "tenant": {"name": "مصطفى احمد عويس", "idNumber": "2575837071", "phone": "574221358", "contract": "1370", "dueDate": "2026-07-20", "rent": 800.0}, "balance": 1600.0, "lastPaymentDate": "2026-06-16", "payments": [], "history": ["محمد يوسف"]}, {"id": "b2-310-1-30", "room": "310-1", "vacant": false, "tenant": {"name": "جلهم محمد الجلهم", "idNumber": "2496940764", "phone": "578090976", "contract": "1365", "dueDate": "2026-08-10", "rent": 700.0}, "balance": 700.0, "lastPaymentDate": "2026-07-18", "payments": [], "history": ["منذر بخيت احمد"]}, {"id": "b2-311-2-31", "room": "311-2", "vacant": true, "tenant": {"name": "", "idNumber": "", "phone": "", "contract": "", "dueDate": "", "rent": 0}, "balance": 0, "lastPaymentDate": "", "payments": [], "history": ["اسماعيل عثمان"]}, {"id": "b2-401-1-32", "room": "401-1", "vacant": false, "tenant": {"name": "كريم عبد الحكيم", "idNumber": "2517743890", "phone": "569352704", "contract": "1465", "dueDate": "2026-08-01", "rent": 700.0}, "balance": 700.0, "lastPaymentDate": "2026-07-08", "payments": [], "history": []}, {"id": "b2-402-1-33", "room": "402-1", "vacant": false, "tenant": {"name": "احمد زيد", "idNumber": "2540033103", "phone": "543899644", "contract": "1263", "dueDate": "2026-07-20", "rent": 700.0}, "balance": 1400.0, "lastPaymentDate": "2026-06-22", "payments": [], "history": []}, {"id": "b2-403-1-34", "room": "403-1", "vacant": false, "tenant": {"name": "بسام عباس", "idNumber": "2184020820", "phone": "504278893", "contract": "1483", "dueDate": "2025-11-26", "rent": 750.0}, "balance": 3950.0, "lastPaymentDate": "2026-04-11", "payments": [], "history": []}, {"id": "b2-404-3-35", "room": "404-3", "vacant": false, "tenant": {"name": "الانظمة المتقنة للاعمال المعدنية", "idNumber": "10107789861", "phone": "552514044", "contract": "1158", "dueDate": "2025-10-13", "rent": 1150.0}, "balance": 4200.0, "lastPaymentDate": "2026-05-24", "payments": [], "history": []}, {"id": "b2-405-1-36", "room": "405-1", "vacant": false, "tenant": {"name": "حسن جوران", "idNumber": "", "phone": "", "contract": "", "dueDate": "2024-01-11", "rent": 1000.0}, "balance": 3000.0, "lastPaymentDate": "2026-06-02", "payments": [], "history": []}, {"id": "b2-406-1-37", "room": "406-1", "vacant": false, "tenant": {"name": "رقيب الإسلام", "idNumber": "2515650592", "phone": "570432430", "contract": "1363", "dueDate": "4/8/256", "rent": 700.0}, "balance": 700.0, "lastPaymentDate": "2026-07-07", "payments": [], "history": ["حمدنا الله عبدالله"]}]}};
+
+const STORAGE_KEY = "hijaz-rentals-store-v7";
+
+function todayStr() {
+  const d = new Date();
+  const yy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function fmtMoney(n) {
+  const v = Number(n) || 0;
+  return v.toLocaleString("en-US", { maximumFractionDigits: 0 }) + " ر.س";
+}
+
+function fmtDate(s) {
+  if (!s) return "—";
+  return s;
+}
+
+const AR_MONTH_NAMES = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+const AR_ORDINALS = ["الأول", "الثاني", "الثالث", "الرابع", "الخامس", "السادس", "السابع", "الثامن", "التاسع", "العاشر", "الحادي عشر", "الثاني عشر"];
+
+function monthLabelAr(ym) {
+  if (!ym || ym.length < 7) return ym || "—";
+  const [y, m] = ym.split("-");
+  const idx = parseInt(m, 10) - 1;
+  return `${AR_MONTH_NAMES[idx] || m} ${y}`;
+}
+
+function ordinalMonthLabel(idx) {
+  return idx < AR_ORDINALS.length ? `الشهر ${AR_ORDINALS[idx]}` : `الشهر رقم ${idx + 1}`;
+}
+
+function buildMonthlyBreakdown(room) {
+  const entries = room.payments || [];
+  const monthMap = {};
+  entries.forEach((p) => {
+    if (!p.date || p.date.length < 7) return;
+    const ym = p.date.slice(0, 7);
+    if (!monthMap[ym]) monthMap[ym] = { charge: 0, cash: 0, transfer: 0, platform: 0, receipts: [], dates: [] };
+    if (p.type === "charge") {
+      monthMap[ym].charge += Number(p.amount) || 0;
+    } else if (p.type === "payment") {
+      monthMap[ym].cash += Number(p.cash) || 0;
+      monthMap[ym].transfer += Number(p.transfer) || 0;
+      monthMap[ym].platform += Number(p.platform) || 0;
+      if (p.receipt) monthMap[ym].receipts.push(String(p.receipt));
+      if (p.date) monthMap[ym].dates.push(p.date);
+    }
+  });
+  return Object.keys(monthMap)
+    .sort()
+    .map((ym, idx) => {
+      const m = monthMap[ym];
+      const paid = m.cash + m.transfer + m.platform;
+      return {
+        ym,
+        label: `${ordinalMonthLabel(idx)} (${monthLabelAr(ym)})`,
+        cash: m.cash,
+        transfer: m.transfer,
+        platform: m.platform,
+        receipts: m.receipts.join("، "),
+        date: m.dates.sort().slice(-1)[0] || "",
+        remaining: Math.round((m.charge - paid) * 100) / 100,
+      };
+    });
+}
+
+function uid(prefix) {
+  return prefix + "-" + Math.random().toString(36).slice(2, 9);
+}
+
+function photoKey(roomId, kind) {
+  return `hijaz-photo-${roomId}-${kind}`;
+}
+
+async function loadPhoto(roomId, kind) {
+  try {
+    const res = await storage.get(photoKey(roomId, kind));
+    return res && res.value ? res.value : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+async function savePhoto(roomId, kind, dataUrl) {
+  try {
+    await storage.set(photoKey(roomId, kind), dataUrl);
+  } catch (e) {
+    // best effort
+  }
+}
+
+function compressImageFile(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = Math.round(height * (maxDim / width));
+            width = maxDim;
+          } else {
+            width = Math.round(width * (maxDim / height));
+            height = maxDim;
+          }
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", quality));
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+const BACKUP_REMINDER_KEY = "hijaz-last-backup-date";
+
+function emptyTenant() {
+  return { name: "", idNumber: "", phone: "", contract: "", dueDate: "", rent: 0, moveInDate: "", contractEndDate: "" };
+}
+
+function emptyRoom(buildingId) {
+  return {
+    id: uid(buildingId),
+    room: "",
+    vacant: true,
+    tenant: emptyTenant(),
+    balance: 0,
+    lastPaymentDate: "",
+    payments: [],
+    history: [],
+  };
+}
+
+function addMonths(dateStr, months) {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const date = new Date(y, (m - 1) + months, d);
+  const yy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yy}-${mm}-${dd}`;
+}
+
+function daysUntil(dateStr) {
+  if (!dateStr) return null;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return null;
+  const target = new Date(y, m - 1, d);
+  const now = new Date();
+  const today0 = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return Math.round((target - today0) / 86400000);
+}
+
+function normalizePhone(phone) {
+  let p = (phone || "").replace(/[^0-9]/g, "");
+  if (!p) return "";
+  if (p.startsWith("00")) p = p.slice(2);
+  if (p.startsWith("0")) p = p.slice(1);
+  if (!p.startsWith("966")) p = "966" + p;
+  return p;
+}
+
+function waLink(phone, message) {
+  const p = normalizePhone(phone);
+  if (!p) return null;
+  return `https://wa.me/${p}?text=${encodeURIComponent(message)}`;
+}
+
+function reminderMessage(room) {
+  const balance = getBalance(room);
+  if (balance > 0) {
+    return `السلام عليكم، تذكير بخصوص إيجار الوحدة ${room.room} — المبلغ المتبقي عليكم ${fmtMoney(balance)}. يرجى التواصل لتسديد المستحق. شكراً`;
+  }
+  return `السلام عليكم، تذكير بأن موعد استحقاق إيجار الوحدة ${room.room} قريب (${fmtDate(room.tenant.dueDate)}). شكراً`;
+}
+
+function xlsxCell(ws, col, row) {
+  const c = ws[col + row];
+  return c ? c.v : undefined;
+}
+
+function xlsxCellIsRed(ws, col, row) {
+  const c = ws[col + row];
+  if (!c || !c.s || !c.s.fgColor) return false;
+  const rgb = (c.s.fgColor.rgb || "").toUpperCase();
+  return rgb.endsWith("FF0000");
+}
+
+function parseMasterSheetGroups(ws) {
+  if (!ws["!ref"]) return [];
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  const maxRow = range.e.r + 1;
+  const groups = [];
+  let row = 6;
+  while (row <= maxRow) {
+    const bVal = xlsxCell(ws, "B", row);
+    if (bVal !== undefined && bVal !== null && String(bVal).trim() !== "") {
+      if (String(bVal).includes("إجمالي")) break;
+      const rows = [row];
+      let r2 = row + 1;
+      while (r2 <= maxRow) {
+        const b2 = xlsxCell(ws, "B", r2);
+        if (b2 !== undefined && b2 !== null && String(b2).trim() !== "") break;
+        const c2 = xlsxCell(ws, "C", r2);
+        if (c2 && String(c2).includes("إجمالي")) break;
+        rows.push(r2);
+        r2++;
+      }
+      groups.push({ room: String(bVal).trim(), rows });
+      row = r2;
+    } else {
+      const cVal = xlsxCell(ws, "C", row);
+      if (cVal && String(cVal).includes("إجمالي")) break;
+      row++;
+    }
+  }
+  return groups;
+}
+
+function xlsxDateStr(ws, col, row) {
+  const c = ws[col + row];
+  if (!c) return "";
+  const v = c.v;
+  if (v instanceof Date) {
+    const yy = v.getFullYear();
+    const mm = String(v.getMonth() + 1).padStart(2, "0");
+    const dd = String(v.getDate()).padStart(2, "0");
+    return `${yy}-${mm}-${dd}`;
+  }
+  return "";
+}
+
+const ARCHIVE_START_DATE = "2026-01-01";
+function clampToArchiveStart(dateStr) {
+  if (!dateStr) return dateStr;
+  return dateStr < ARCHIVE_START_DATE ? ARCHIVE_START_DATE : dateStr;
+}
+
+const XLSX_MONTH_BLOCKS = [
+  ["L", "M", "N", "O", "P", "Q"], ["R", "S", "T", "U", "V", "W"], ["X", "Y", "Z", "AA", "AB", "AC"],
+  ["AD", "AE", "AF", "AG", "AH", "AI"], ["AJ", "AK", "AL", "AM", "AN", "AO"], ["AP", "AQ", "AR", "AS", "AT", "AU"],
+  ["AV", "AW", "AX", "AY", "AZ", "BA"], ["BB", "BC", "BD", "BE", "BF", "BG"],
+];
+
+function extractMonthlyRecords(ws, row) {
+  const raw = XLSX_MONTH_BLOCKS.map(([cashCol, transferCol, platformCol, receiptCol, dateCol, remainingCol]) => {
+    const cash = Number(xlsxCell(ws, cashCol, row)) || 0;
+    const transfer = Number(xlsxCell(ws, transferCol, row)) || 0;
+    const platform = Number(xlsxCell(ws, platformCol, row)) || 0;
+    const receiptRaw = xlsxCell(ws, receiptCol, row);
+    let receipt = receiptRaw !== undefined && receiptRaw !== null ? String(receiptRaw).trim() : "";
+    if (receipt.includes("مجموع")) receipt = "دفعة مجمّعة";
+    const dateStr = xlsxDateStr(ws, dateCol, row);
+    const remainingRaw = xlsxCell(ws, remainingCol, row);
+    const hasRemaining = remainingRaw !== undefined && remainingRaw !== null && Number(remainingRaw) !== 0;
+    const total = cash + transfer + platform;
+    const active = total > 0 || !!receipt || hasRemaining;
+    return { active, date: dateStr, receipt, cash, transfer, platform, total };
+  });
+
+  let lastKnown = null;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i].date) {
+      lastKnown = raw[i].date;
+    } else if (raw[i].active && lastKnown) {
+      lastKnown = addMonths(lastKnown, 1);
+      raw[i].date = lastKnown;
+    }
+  }
+  const firstKnownIdx = raw.findIndex((r) => r.date);
+  if (firstKnownIdx > 0) {
+    let anchor = raw[firstKnownIdx].date;
+    for (let i = firstKnownIdx - 1; i >= 0; i--) {
+      if (raw[i].active && !raw[i].date) {
+        anchor = addMonths(anchor, -1);
+        raw[i].date = anchor;
+      }
+    }
+  }
+
+  return raw.filter((r) => r.active).map((r) => ({ ...r, date: clampToArchiveStart(r.date) }));
+}
+
+function resolveMasterGroup(ws, group) {
+  const infos = group.rows.map((r) => {
+    const nameRaw = xlsxCell(ws, "C", r);
+    return {
+      row: r,
+      name: nameRaw !== undefined && nameRaw !== null ? String(nameRaw).trim() : "",
+      idNumber: xlsxCell(ws, "D", r) !== undefined ? String(xlsxCell(ws, "D", r)) : "",
+      phone: xlsxCell(ws, "E", r) !== undefined ? String(xlsxCell(ws, "E", r)) : "",
+      contract: xlsxCell(ws, "F", r) !== undefined ? String(xlsxCell(ws, "F", r)) : "",
+      dueDate: xlsxDateStr(ws, "G", r),
+      rent: xlsxCell(ws, "H", r),
+      red: xlsxCellIsRed(ws, "C", r),
+    };
+  });
+  const nonRed = infos.filter((inf) => !inf.red && inf.name);
+  const current = nonRed[0] || null;
+  const history = infos.filter((inf) => inf.name && inf !== current);
+  return { room: group.room, current, history };
+}
+
+function applyMasterGroupsToBuilding(ws, building, resolvedGroups) {
+  let updated = 0;
+  let historyAdded = 0;
+  let paymentsAdded = 0;
+  let chargesAdded = 0;
+  resolvedGroups.forEach((rg) => {
+    const room = building.rooms.find((r) => String(r.room).trim() === rg.room);
+    if (!room) return;
+    if (rg.current) {
+      room.vacant = false;
+      if (rg.current.name) room.tenant.name = rg.current.name;
+      if (rg.current.idNumber) room.tenant.idNumber = rg.current.idNumber;
+      if (rg.current.phone) room.tenant.phone = rg.current.phone;
+      if (rg.current.contract) room.tenant.contract = rg.current.contract;
+      if (rg.current.rent) room.tenant.rent = Number(rg.current.rent) || room.tenant.rent;
+      if (rg.current.dueDate) room.tenant.moveInDate = rg.current.dueDate;
+      updated++;
+
+      const rent = Number(rg.current.rent) || room.tenant.rent || 0;
+      const monthRecords = extractMonthlyRecords(ws, rg.current.row);
+      if (monthRecords.length > 0) {
+        if (!Array.isArray(room.payments)) room.payments = [];
+        const existingReceipts = new Set(room.payments.filter((p) => p.type === "payment" && p.receipt).map((p) => p.receipt));
+        const existingCharges = new Set(room.payments.filter((p) => p.type === "charge" && p.note === "استحقاق مستورد من إكسل").map((p) => `${p.date}|${p.amount}`));
+        monthRecords.forEach((rec) => {
+          const chargeSig = `${rec.date}|${rent}`;
+          if (rent > 0 && !existingCharges.has(chargeSig)) {
+            room.payments.push({
+              id: uid("chg"), type: "charge", amount: rent, date: rec.date,
+              note: "استحقاق مستورد من إكسل", createdAt: todayStr(),
+            });
+            existingCharges.add(chargeSig);
+            chargesAdded++;
+          }
+          if (rec.total > 0 && !(rec.receipt && rec.receipt !== "دفعة مجمّعة" && existingReceipts.has(rec.receipt))) {
+            room.payments.push({
+              id: uid("pay"), type: "payment", date: rec.date, receipt: rec.receipt,
+              cash: rec.cash, transfer: rec.transfer, platform: rec.platform, total: rec.total,
+              note: "مستورد من إكسل", createdAt: todayStr(),
+            });
+            if (rec.receipt && rec.receipt !== "دفعة مجمّعة") existingReceipts.add(rec.receipt);
+            paymentsAdded++;
+          }
+        });
+        room.openingBalance = 0;
+        const lastImportedDate = monthRecords.map((r) => r.date).filter(Boolean).sort().slice(-1)[0];
+        room.tenant.dueDate = lastImportedDate ? addMonths(lastImportedDate, 1) : clampToArchiveStart(rg.current.dueDate || room.tenant.dueDate);
+      } else if (rg.current.dueDate) {
+        room.tenant.dueDate = clampToArchiveStart(rg.current.dueDate);
+      }
+    } else {
+      room.vacant = true;
+    }
+    if (!Array.isArray(room.history)) room.history = [];
+    const existingNames = new Set(room.history.map((h) => (typeof h === "string" ? h : h.name || "").trim()));
+    rg.history.forEach((h) => {
+      if (!h.name || existingNames.has(h.name)) return;
+      if (room.tenant.name && room.tenant.name.trim() === h.name) return;
+      room.history.push({
+        name: h.name, idNumber: h.idNumber || "", phone: h.phone || "", contract: h.contract || "",
+        rent: h.rent || null, moveInDate: "", moveOutDate: "", finalBalance: null,
+        note: "من ملف إكسل مستورد",
+      });
+      existingNames.add(h.name);
+      historyAdded++;
+    });
+  });
+  return { updated, historyAdded, paymentsAdded, chargesAdded };
+}
+
+function getBalance(room) {
+  const opening = Number(room.openingBalance ?? room.balance) || 0;
+  const charges = (room.payments || [])
+    .filter((p) => p.type === "charge")
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  const paid = (room.payments || [])
+    .filter((p) => p.type === "payment")
+    .reduce((s, p) => s + (Number(p.total) || 0), 0);
+  return Math.round((opening + charges - paid) * 100) / 100;
+}
+
+function accrueRoomCharges(room, today) {
+  if (room.vacant) return 0;
+  const rent = Number(room.tenant.rent) || 0;
+  let due = room.tenant.dueDate;
+  if (!rent || !due) return 0;
+
+  let probe = due;
+  let needed = 0;
+  let probeGuard = 0;
+  while (probe && probe <= today && probeGuard < 2000) {
+    needed++;
+    probe = addMonths(probe, 1);
+    probeGuard++;
+  }
+  if (needed === 0) return 0;
+  if (needed > 60) {
+    return -1;
+  }
+
+  let count = 0;
+  while (due && due <= today) {
+    const entry = {
+      id: uid("chg"),
+      type: "charge",
+      amount: rent,
+      date: due,
+      note: "استحقاق شهري تلقائي",
+      createdAt: today,
+    };
+    room.payments = [entry, ...(room.payments || [])];
+    due = addMonths(due, 1);
+    count++;
+  }
+  room.tenant.dueDate = due;
+  return count;
+}
+
+function applyAutoAccrual(store) {
+  const today = todayStr();
+  let count = 0;
+  const flagged = [];
+  const next = structuredClone(store);
+  for (const bId of ["building1", "building2"]) {
+    if (!Array.isArray(next[bId].expenses)) next[bId].expenses = [];
+    for (const room of next[bId].rooms) {
+      if (room.openingBalance === undefined) room.openingBalance = room.balance || 0;
+      if (Array.isArray(room.history)) {
+        room.history = room.history.map((h) =>
+          typeof h === "string"
+            ? { name: h, idNumber: "", phone: "", contract: "", rent: null, moveInDate: "", moveOutDate: "", finalBalance: null, note: "من البيانات المستوردة" }
+            : h
+        );
+      } else {
+        room.history = [];
+      }
+      const added = accrueRoomCharges(room, today);
+      if (added === -1) {
+        flagged.push(`${next[bId].name} — وحدة ${room.room}`);
+      } else {
+        count += added;
+      }
+    }
+  }
+  return { store: next, count, flagged };
+}
+
+function App({ onLogout }) {
+  const [store, setStore] = useState(null);
+  const [ready, setReady] = useState(false);
+  const [tab, setTab] = useState("dashboard");
+  const [search, setSearch] = useState("");
+  const [payModal, setPayModal] = useState(null); // { buildingId, roomId }
+  const [editModal, setEditModal] = useState(null); // { buildingId, roomId, isNew }
+  const [receiptsModal, setReceiptsModal] = useState(null); // { buildingId, roomId }
+  const [historyModal, setHistoryModal] = useState(null); // { buildingId, roomId }
+  const [deleteConfirm, setDeleteConfirm] = useState(null); // { buildingId, roomId, roomLabel }
+  const [endTenancyModal, setEndTenancyModal] = useState(null); // { buildingId, roomId }
+  const [statementModal, setStatementModal] = useState(null); // { buildingId, roomId }
+  const [toast, setToast] = useState("");
+  const [backupOverdue, setBackupOverdue] = useState(false);
+  const [wipeConfirm, setWipeConfirm] = useState(false);
+
+  const storeRef = useRef(null);
+  const writeQueueRef = useRef(Promise.resolve());
+
+  function persist(next) {
+    storeRef.current = next;
+    writeQueueRef.current = writeQueueRef.current
+      .catch(() => {})
+      .then(async () => {
+        try {
+          await storage.set(STORAGE_KEY, JSON.stringify(next));
+        } catch (e) {
+          showToast("تعذّر الحفظ — تحقق من الاتصال بالإنترنت");
+        }
+      });
+  }
+
+  useEffect(() => {
+    (async () => {
+      let loaded;
+      try {
+        const res = await storage.get(STORAGE_KEY);
+        loaded = res && res.value ? JSON.parse(res.value) : SEED;
+      } catch (e) {
+        loaded = SEED;
+      }
+      const { store: accrued, count, flagged } = applyAutoAccrual(loaded);
+      storeRef.current = accrued;
+      setStore(accrued);
+      setReady(true);
+      if (count > 0) {
+        persist(accrued);
+        setTimeout(() => showToast(`تمت إضافة ${count} استحقاق شهري تلقائياً`), 300);
+      }
+      if (flagged && flagged.length > 0) {
+        setTimeout(() => showToast(`تنبيه: تاريخ استحقاق غير منطقي بـ ${flagged.length} وحدة، راجعيها من "تعديل"`), 900);
+      }
+      try {
+        const res = await storage.get(BACKUP_REMINDER_KEY);
+        const lastBackup = res && res.value;
+        if (!lastBackup) {
+          setBackupOverdue(true);
+        } else {
+          const days = Math.round((new Date(todayStr()) - new Date(lastBackup)) / 86400000);
+          if (days >= 7) setBackupOverdue(true);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+  }, []);
+
+  function showToast(msg) {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2200);
+  }
+
+  function updateRoom(buildingId, roomId, updater) {
+    const prev = storeRef.current;
+    if (!prev) return;
+    const next = structuredClone(prev);
+    const rooms = next[buildingId].rooms;
+    const idx = rooms.findIndex((r) => r.id === roomId);
+    if (idx === -1) return;
+    rooms[idx] = updater(rooms[idx]);
+    setStore(next);
+    persist(next);
+  }
+
+  function addRoom(buildingId, room) {
+    const prev = storeRef.current;
+    if (!prev) return;
+    const next = structuredClone(prev);
+    next[buildingId].rooms.push(room);
+    setStore(next);
+    persist(next);
+  }
+
+  function deleteRoom(buildingId, roomId) {
+    const prev = storeRef.current;
+    if (!prev) return;
+    const next = structuredClone(prev);
+    next[buildingId].rooms = next[buildingId].rooms.filter((r) => r.id !== roomId);
+    setStore(next);
+    persist(next);
+  }
+
+  function recordPayment(buildingId, roomId, payment) {
+    updateRoom(buildingId, roomId, (room) => {
+      const total = (Number(payment.cash) || 0) + (Number(payment.transfer) || 0) + (Number(payment.platform) || 0);
+      const entry = { ...payment, id: uid("pay"), type: "payment", total, createdAt: todayStr() };
+      room.payments = [entry, ...(room.payments || [])];
+      room.lastPaymentDate = payment.date || todayStr();
+      return room;
+    });
+  }
+
+  function addCharge(buildingId, roomId, charge) {
+    updateRoom(buildingId, roomId, (room) => {
+      const amount = Number(charge.amount) || 0;
+      const entry = { id: uid("chg"), type: "charge", amount, date: charge.date, note: charge.note, createdAt: todayStr() };
+      room.payments = [entry, ...(room.payments || [])];
+      return room;
+    });
+  }
+
+  function updateReceiptEntry(buildingId, roomId, entryId, patch) {
+    updateRoom(buildingId, roomId, (room) => {
+      room.payments = (room.payments || []).map((p) => {
+        if (p.id !== entryId) return p;
+        const merged = { ...p, ...patch };
+        if (merged.type === "payment") {
+          merged.total = (Number(merged.cash) || 0) + (Number(merged.transfer) || 0) + (Number(merged.platform) || 0);
+        }
+        return merged;
+      });
+      return room;
+    });
+  }
+
+  function deleteReceiptEntry(buildingId, roomId, entryId) {
+    updateRoom(buildingId, roomId, (room) => {
+      room.payments = (room.payments || []).filter((p) => p.id !== entryId);
+      return room;
+    });
+  }
+
+  function addReceiptRow(buildingId, roomId) {
+    updateRoom(buildingId, roomId, (room) => {
+      const entry = { id: uid("pay"), type: "payment", cash: 0, transfer: 0, platform: 0, total: 0, receipt: "", date: todayStr(), note: "", createdAt: todayStr() };
+      room.payments = [entry, ...(room.payments || [])];
+      return room;
+    });
+  }
+
+  function endTenancy(buildingId, roomId, moveOutDate) {
+    updateRoom(buildingId, roomId, (room) => {
+      if (room.vacant || !room.tenant.name) return room;
+      const finalBalance = getBalance(room);
+      const archived = {
+        name: room.tenant.name,
+        idNumber: room.tenant.idNumber,
+        phone: room.tenant.phone,
+        contract: room.tenant.contract,
+        rent: room.tenant.rent,
+        moveInDate: room.tenant.moveInDate || "",
+        moveOutDate: moveOutDate || todayStr(),
+        finalBalance,
+        note: "",
+      };
+      room.history = [archived, ...(room.history || [])];
+      room.tenant = emptyTenant();
+      room.vacant = true;
+      room.balance = 0;
+      room.openingBalance = 0;
+      room.payments = [];
+      room.lastPaymentDate = "";
+      return room;
+    });
+  }
+
+  function addExpense(buildingId, expense) {
+    const prev = storeRef.current;
+    if (!prev) return;
+    const next = structuredClone(prev);
+    const entry = {
+      id: uid("exp"),
+      description: expense.description || "",
+      amount: Number(expense.amount) || 0,
+      date: expense.date || todayStr(),
+      note: expense.note || "",
+      createdAt: todayStr(),
+    };
+    next[buildingId].expenses = [entry, ...(next[buildingId].expenses || [])];
+    setStore(next);
+    persist(next);
+  }
+
+  function deleteExpense(buildingId, expenseId) {
+    const prev = storeRef.current;
+    if (!prev) return;
+    const next = structuredClone(prev);
+    next[buildingId].expenses = (next[buildingId].expenses || []).filter((e) => e.id !== expenseId);
+    setStore(next);
+    persist(next);
+  }
+
+  function clearAutoCharges(buildingId, roomId) {
+    updateRoom(buildingId, roomId, (room) => {
+      room.payments = (room.payments || []).filter((p) => p.type !== "charge");
+      return room;
+    });
+  }
+
+  function resetOpeningBalance(buildingId, roomId) {
+    updateRoom(buildingId, roomId, (room) => {
+      room.openingBalance = 0;
+      return room;
+    });
+  }
+
+  function wipeAllFinancials() {
+    const prev = storeRef.current;
+    if (!prev) return;
+    const next = structuredClone(prev);
+    for (const bId of ["building1", "building2"]) {
+      next[bId].rooms.forEach((room) => {
+        room.payments = [];
+        room.openingBalance = 0;
+        room.balance = 0;
+        room.lastPaymentDate = "";
+      });
+    }
+    storeRef.current = next;
+    setStore(next);
+    persist(next);
+  }
+
+  function exportBackup() {
+    try {
+      const blob = new Blob([JSON.stringify(store, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `نسخة-احتياطية-عمارات-الحجاز-${todayStr()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("تم تنزيل النسخة الاحتياطية");
+      storage.set(BACKUP_REMINDER_KEY, todayStr()).catch(() => {});
+      setBackupOverdue(false);
+    } catch (e) {
+      showToast("تعذّر تنزيل النسخة");
+    }
+  }
+
+  function exportExcel() {
+    try {
+      const unitsRows = [];
+      const receiptsRows = [];
+      const chargesRows = [];
+      const expensesRows = [];
+      const historyRows = [];
+
+      for (const bId of ["building1", "building2"]) {
+        const b = store[bId];
+        b.rooms.forEach((r) => {
+          unitsRows.push({
+            "العمارة": b.name,
+            "الوحدة": r.room,
+            "الحالة": r.vacant ? "فارغة" : "مؤجرة",
+            "المستأجر": r.tenant.name,
+            "رقم الهوية": r.tenant.idNumber,
+            "الجوال": r.tenant.phone,
+            "رقم العقد": r.tenant.contract,
+            "الإيجار الشهري": r.tenant.rent,
+            "تاريخ الدخول": r.tenant.moveInDate,
+            "تاريخ الاستحقاق القادم": r.tenant.dueDate,
+            "تاريخ انتهاء العقد": r.tenant.contractEndDate,
+            "المتبقي": getBalance(r),
+          });
+          (r.payments || []).forEach((p) => {
+            if (p.type === "payment") {
+              receiptsRows.push({
+                "العمارة": b.name, "الوحدة": r.room, "المستأجر": r.tenant.name,
+                "التاريخ": p.date, "رقم السند": p.receipt, "كاش": Number(p.cash) || 0,
+                "حوالة": Number(p.transfer) || 0, "منصة": Number(p.platform) || 0, "الإجمالي": p.total,
+              });
+            } else {
+              chargesRows.push({
+                "العمارة": b.name, "الوحدة": r.room, "المستأجر": r.tenant.name,
+                "التاريخ": p.date, "المبلغ": p.amount, "ملاحظة": p.note,
+              });
+            }
+          });
+          (r.history || []).forEach((h) => {
+            historyRows.push({
+              "العمارة": b.name, "الوحدة": r.room, "الاسم": h.name, "رقم الهوية": h.idNumber,
+              "الجوال": h.phone, "رقم العقد": h.contract, "الإيجار": h.rent,
+              "تاريخ الدخول": h.moveInDate, "تاريخ الخروج": h.moveOutDate,
+              "المتبقي عند الخروج": h.finalBalance,
+            });
+          });
+        });
+        (b.expenses || []).forEach((e) => {
+          expensesRows.push({ "العمارة": b.name, "الوصف": e.description, "المبلغ": e.amount, "التاريخ": e.date });
+        });
+      }
+
+      const wb = XLSX.utils.book_new();
+      wb.Workbook = { Views: [{ RTL: true }] };
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(unitsRows), "الوحدات");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(receiptsRows), "السندات");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(chargesRows), "الاستحقاقات");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(expensesRows), "المصاريف");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(historyRows), "الساكنون السابقون");
+      XLSX.writeFile(wb, `عمارات-الحجاز-${todayStr()}.xlsx`);
+      showToast("تم تحميل ملف الإكسل");
+    } catch (e) {
+      showToast("تعذّر تحميل ملف الإكسل");
+    }
+  }
+
+  function importBackup(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const parsed = JSON.parse(e.target.result);
+        if (!parsed.building1 || !parsed.building2) throw new Error("bad format");
+        storeRef.current = parsed;
+        setStore(parsed);
+        persist(parsed);
+        showToast("تم استيراد النسخة بنجاح");
+      } catch (err) {
+        showToast("الملف غير صالح، تأكد إنه نفس نوع النسخة الاحتياطية");
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  function importExcel(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type: "array", cellStyles: true, cellDates: true });
+        const prev = storeRef.current;
+        if (!prev) return;
+        const next = structuredClone(prev);
+        let updated = 0;
+        let historyAdded = 0;
+
+        const ws0 = wb.Sheets[wb.SheetNames[0]];
+        const looksLikeMasterSheet = ws0 && ws0["A4"] && String(ws0["A4"].v || "").includes("الغرفة");
+
+        if (looksLikeMasterSheet) {
+          const groups = parseMasterSheetGroups(ws0);
+          const resolved = groups.map((g) => resolveMasterGroup(ws0, g));
+          const splitIdxs = [];
+          resolved.forEach((rg, i) => { if (/^101(\D|$)/.test(rg.room)) splitIdxs.push(i); });
+          let b1Groups = resolved;
+          let b2Groups = [];
+          if (splitIdxs.length >= 2) {
+            b1Groups = resolved.slice(splitIdxs[0], splitIdxs[1]);
+            b2Groups = resolved.slice(splitIdxs[1]);
+          }
+          const r1 = applyMasterGroupsToBuilding(ws0, next.building1, b1Groups);
+          const r2 = applyMasterGroupsToBuilding(ws0, next.building2, b2Groups);
+          updated = r1.updated + r2.updated;
+          historyAdded = r1.historyAdded + r2.historyAdded;
+          const paymentsAdded = r1.paymentsAdded + r2.paymentsAdded;
+          const chargesAdded = r1.chargesAdded + r2.chargesAdded;
+          storeRef.current = next;
+          setStore(next);
+          persist(next);
+          const parts = [];
+          if (updated > 0) parts.push(`تحديث ${updated} وحدة`);
+          if (historyAdded > 0) parts.push(`إضافة ${historyAdded} ساكن سابق`);
+          if (paymentsAdded > 0) parts.push(`${paymentsAdded} سند دفع`);
+          if (chargesAdded > 0) parts.push(`${chargesAdded} استحقاق`);
+          showToast(parts.length ? `تم استيراد: ${parts.join("، ")}` : "لم يتم العثور على بيانات مطابقة بالملف");
+          return;
+        }
+
+        if (wb.SheetNames.includes("الوحدات")) {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets["الوحدات"]);
+          for (const bId of ["building1", "building2"]) {
+            const bName = next[bId].name;
+            next[bId].rooms.forEach((room) => {
+              const match = rows.find((row) =>
+                row["الوحدة"] !== undefined &&
+                String(row["الوحدة"]).trim() === String(room.room).trim() &&
+                (!row["العمارة"] || String(row["العمارة"]).trim() === bName)
+              );
+              if (match) {
+                if (match["المستأجر"] !== undefined) room.tenant.name = String(match["المستأجر"] || "");
+                if (match["رقم الهوية"] !== undefined) room.tenant.idNumber = String(match["رقم الهوية"] || "");
+                if (match["الجوال"] !== undefined) room.tenant.phone = String(match["الجوال"] || "");
+                if (match["رقم العقد"] !== undefined) room.tenant.contract = String(match["رقم العقد"] || "");
+                if (match["الإيجار الشهري"] !== undefined) room.tenant.rent = Number(match["الإيجار الشهري"]) || 0;
+                if (match["الحالة"] !== undefined) room.vacant = String(match["الحالة"]).includes("فارغ");
+                updated++;
+              }
+            });
+          }
+        }
+
+        const histSheetName = wb.SheetNames.find((n) => n.includes("الساكنون_السابقون") || n.includes("الساكنون السابقون"));
+        if (histSheetName) {
+          const histRows = XLSX.utils.sheet_to_json(wb.Sheets[histSheetName]);
+          for (const bId of ["building1", "building2"]) {
+            const bName = next[bId].name;
+            next[bId].rooms.forEach((room) => {
+              const entriesForRoom = histRows.filter((row) =>
+                row["الوحدة"] !== undefined &&
+                String(row["الوحدة"]).trim() === String(room.room).trim() &&
+                (!row["العمارة"] || String(row["العمارة"]).trim() === bName)
+              );
+              if (!Array.isArray(room.history)) room.history = [];
+              const existingNames = new Set(room.history.map((h) => (typeof h === "string" ? h : h.name || "").trim()));
+              entriesForRoom.forEach((row) => {
+                const name = String(row["الاسم"] || "").trim();
+                if (!name || existingNames.has(name)) return;
+                if (room.tenant && room.tenant.name && room.tenant.name.trim() === name) return;
+                room.history.push({
+                  name,
+                  idNumber: String(row["رقم الهوية"] || ""),
+                  phone: String(row["الجوال"] || ""),
+                  contract: String(row["رقم العقد"] || ""),
+                  rent: row["الإيجار"] || null,
+                  moveInDate: "", moveOutDate: "", finalBalance: null,
+                  note: "من ملف إكسل مستورد",
+                });
+                existingNames.add(name);
+                historyAdded++;
+              });
+            });
+          }
+        }
+
+        storeRef.current = next;
+        setStore(next);
+        persist(next);
+        const parts = [];
+        if (updated > 0) parts.push(`تحديث ${updated} وحدة`);
+        if (historyAdded > 0) parts.push(`إضافة ${historyAdded} ساكن سابق`);
+        showToast(parts.length ? `تم ${parts.join(" و")}` : "لم يتم العثور على بيانات مطابقة بالملف");
+      } catch (err) {
+        showToast("تعذّر قراءة ملف الإكسل — تأكدي من الصيغة");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  if (!store) {
+    return (
+      <div style={{ minHeight: "100vh", background: BG, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FONT }}>
+        <div style={{ color: INK, fontSize: 15 }}>...جاري التحميل</div>
+      </div>
+    );
+  }
+
+  const buildings = [
+    { id: "building1", data: store.building1 },
+    { id: "building2", data: store.building2 },
+  ];
+
+  return (
+    <div dir="rtl" style={{ minHeight: "100vh", background: BG, fontFamily: FONT, color: INK }}>
+      <GlobalStyle />
+      <TopBar tab={tab} setTab={setTab} onExport={exportBackup} onImportFile={importBackup} onLogout={onLogout} onExportExcel={exportExcel} onImportExcel={importExcel} onWipeAll={() => setWipeConfirm(true)} />
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "18px 16px 60px" }}>
+        {tab === "dashboard" && (
+          <Dashboard buildings={buildings} onGo={(t) => setTab(t)} backupOverdue={backupOverdue} onExportBackup={exportBackup} />
+        )}
+        {(tab === "building1" || tab === "building2") && (
+          <BuildingView
+            buildingId={tab}
+            building={store[tab]}
+            search={search}
+            setSearch={setSearch}
+            onPay={(roomId) => setPayModal({ buildingId: tab, roomId })}
+            onEdit={(roomId, isNew) => setEditModal({ buildingId: tab, roomId, isNew })}
+            onReceipts={(roomId) => setReceiptsModal({ buildingId: tab, roomId })}
+            onHistory={(roomId) => setHistoryModal({ buildingId: tab, roomId })}
+            onQuickEndTenancy={(roomId) => setEndTenancyModal({ buildingId: tab, roomId })}
+            onStatement={(roomId) => setStatementModal({ buildingId: tab, roomId })}
+            onAddRoom={() => {
+              const room = emptyRoom(tab);
+              addRoom(tab, room);
+              setEditModal({ buildingId: tab, roomId: room.id, isNew: true });
+            }}
+            onDelete={(roomId) => {
+              const room = store[tab].rooms.find((r) => r.id === roomId);
+              setDeleteConfirm({ buildingId: tab, roomId, roomLabel: room ? room.room : "" });
+            }}
+          />
+        )}
+        {tab === "reports" && <Reports buildings={buildings} />}
+        {tab === "expenses" && <ExpensesView buildings={buildings} onAddExpense={addExpense} onDeleteExpense={deleteExpense} />}
+        {tab === "collection" && <CollectionView buildings={buildings} onPay={(buildingId, roomId) => setPayModal({ buildingId, roomId })} />}
+      </div>
+
+      {payModal && (
+        <PayModal
+          room={store[payModal.buildingId].rooms.find((r) => r.id === payModal.roomId)}
+          onClose={() => setPayModal(null)}
+          onSubmitPayment={(p) => {
+            recordPayment(payModal.buildingId, payModal.roomId, p);
+            showToast("تم تسجيل الدفعة");
+            setPayModal(null);
+          }}
+          onSubmitCharge={(c) => {
+            addCharge(payModal.buildingId, payModal.roomId, c);
+            showToast("تم إضافة الاستحقاق");
+            setPayModal(null);
+          }}
+        />
+      )}
+
+      {editModal && (
+        <EditModal
+          room={store[editModal.buildingId].rooms.find((r) => r.id === editModal.roomId)}
+          isNew={editModal.isNew}
+          onClose={() => setEditModal(null)}
+          onSave={(patch) => {
+            updateRoom(editModal.buildingId, editModal.roomId, (room) => {
+              const moveInChanged = patch.tenant && patch.tenant.moveInDate !== room.tenant.moveInDate;
+              const merged = { ...room, ...patch };
+              if (moveInChanged) {
+                merged.payments = (merged.payments || []).filter((p) => p.type !== "charge");
+              }
+              const addedCount = accrueRoomCharges(merged, todayStr());
+              if (addedCount > 0) {
+                setTimeout(() => showToast(`تمت إضافة ${addedCount} استحقاق شهري تلقائياً`), 300);
+              } else if (addedCount === -1) {
+                setTimeout(() => showToast('تاريخ الاستحقاق يبدو غير صحيح (بعيد جداً) — تأكدي منه'), 300);
+              }
+              return merged;
+            });
+            showToast("تم حفظ البيانات");
+            setEditModal(null);
+          }}
+          onEndTenancy={(moveOutDate) => {
+            endTenancy(editModal.buildingId, editModal.roomId, moveOutDate);
+            showToast("تم تسجيل مغادرة المستأجر");
+            setEditModal(null);
+          }}
+        />
+      )}
+
+      {receiptsModal && (
+        <ReceiptsModal
+          room={store[receiptsModal.buildingId].rooms.find((r) => r.id === receiptsModal.roomId)}
+          onClose={() => setReceiptsModal(null)}
+          onAddRow={(payment) => {
+            recordPayment(receiptsModal.buildingId, receiptsModal.roomId, payment);
+            showToast("تم حفظ السند");
+          }}
+          onUpdateRow={(entryId, patch) => updateReceiptEntry(receiptsModal.buildingId, receiptsModal.roomId, entryId, patch)}
+          onDeleteRow={(entryId) => {
+            deleteReceiptEntry(receiptsModal.buildingId, receiptsModal.roomId, entryId);
+            showToast("تم حذف السند");
+          }}
+          onClearCharges={() => {
+            clearAutoCharges(receiptsModal.buildingId, receiptsModal.roomId);
+            showToast("تم مسح كل الاستحقاقات التلقائية");
+          }}
+          onResetOpening={() => {
+            resetOpeningBalance(receiptsModal.buildingId, receiptsModal.roomId);
+            showToast("تم تصفير الرصيد الافتتاحي");
+          }}
+        />
+      )}
+
+      {historyModal && (
+        <HistoryModal
+          room={store[historyModal.buildingId].rooms.find((r) => r.id === historyModal.roomId)}
+          onClose={() => setHistoryModal(null)}
+        />
+      )}
+
+      {deleteConfirm && (
+        <ConfirmModal
+          title="حذف الوحدة"
+          message={`متأكدة إنك بدك تحذفي وحدة ${deleteConfirm.roomLabel} نهائياً؟ هاد الإجراء ما ينرجع.`}
+          confirmLabel="حذف نهائياً"
+          onConfirm={() => {
+            deleteRoom(deleteConfirm.buildingId, deleteConfirm.roomId);
+            showToast("تم حذف الوحدة");
+            setDeleteConfirm(null);
+          }}
+          onCancel={() => setDeleteConfirm(null)}
+        />
+      )}
+
+      {wipeConfirm && (
+        <WipeConfirmModal
+          onConfirm={() => {
+            wipeAllFinancials();
+            showToast("تم مسح كل البيانات المالية");
+            setWipeConfirm(false);
+          }}
+          onCancel={() => setWipeConfirm(false)}
+        />
+      )}
+
+      {endTenancyModal && (
+        <EndTenancyModal
+          room={store[endTenancyModal.buildingId].rooms.find((r) => r.id === endTenancyModal.roomId)}
+          onClose={() => setEndTenancyModal(null)}
+          onConfirm={(moveOutDate) => {
+            endTenancy(endTenancyModal.buildingId, endTenancyModal.roomId, moveOutDate);
+            showToast("تم إخراج المستأجر ونقله لسجل الساكنين السابقين");
+            setEndTenancyModal(null);
+          }}
+        />
+      )}
+
+      {statementModal && (
+        <StatementModal
+          room={store[statementModal.buildingId].rooms.find((r) => r.id === statementModal.roomId)}
+          buildingName={store[statementModal.buildingId].name}
+          onClose={() => setStatementModal(null)}
+        />
+      )}
+
+      {toast && <Toast msg={toast} />}
+    </div>
+  );
+}
+
+/* ---------------- design tokens ---------------- */
+const BG = "#F6F2EA";
+const INK = "#20302E";
+const PAPER = "#FFFFFF";
+const PRIMARY = "#1D4B45";
+const PRIMARY_DARK = "#12312D";
+const ACCENT = "#B3763E";
+const DANGER = "#A6402F";
+const SUCCESS = "#3F7A5C";
+const MUTED = "#71685C";
+const BORDER = "#E4DBC8";
+const FONT = "'Tajawal', 'Segoe UI', Tahoma, sans-serif";
+
+function GlobalStyle() {
+  return (
+    <style>{`
+      @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;900&display=swap');
+      * { box-sizing: border-box; }
+      body { margin: 0; }
+      input, select, textarea { font-family: ${FONT}; }
+      button { font-family: ${FONT}; cursor: pointer; }
+      ::placeholder { color: #A79C8C; }
+      @media print {
+        body * { visibility: hidden; }
+        .print-statement, .print-statement * { visibility: visible; }
+        .print-statement { position: absolute; top: 0; left: 0; width: 100%; }
+        .no-print { display: none !important; }
+      }
+    `}</style>
+  );
+}
+
+/* ---------------- top bar ---------------- */
+function TopBar({ tab, setTab, onExport, onImportFile, onLogout, onExportExcel, onImportExcel, onWipeAll }) {
+  const fileInputRef = React.useRef(null);
+  const excelInputRef = React.useRef(null);
+  const items = [
+    { id: "dashboard", label: "لوحة التحكم", icon: LayoutDashboard },
+    { id: "building1", label: "العمارة الأولى", icon: Building2 },
+    { id: "building2", label: "العمارة الثانية", icon: Building2 },
+    { id: "collection", label: "التحصيل", icon: ClipboardCheck },
+    { id: "reports", label: "التقارير", icon: FileBarChart2 },
+    { id: "expenses", label: "المصاريف", icon: ShoppingCart },
+  ];
+  return (
+    <div style={{ background: PRIMARY_DARK, position: "sticky", top: 0, zIndex: 20 }}>
+      <div style={{ maxWidth: 980, margin: "0 auto", padding: "14px 16px 0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <div style={{
+            width: 34, height: 34, borderRadius: 8, background: ACCENT,
+            display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0
+          }}>
+            <Receipt size={18} color={PRIMARY_DARK} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ color: "#fff", fontWeight: 900, fontSize: 16, lineHeight: 1.1 }}>عمارات الحجاز</div>
+            <div style={{ color: "#C9CFC7", fontSize: 11.5 }}>إدارة إيجارات ٢٠٢٦</div>
+          </div>
+          <button
+            onClick={onWipeAll}
+            title="مسح كل البيانات المالية (سندات، استحقاقات، أرصدة)"
+            style={{ background: "rgba(220,60,60,0.25)", border: "none", borderRadius: 8, padding: 7, color: "#fff", display: "flex" }}
+          >
+            <Trash2 size={15} />
+          </button>
+          <button
+            onClick={() => excelInputRef.current && excelInputRef.current.click()}
+            title="استيراد بيانات من إكسل"
+            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, padding: 7, color: "#fff", display: "flex" }}
+          >
+            <Upload size={15} color={ACCENT} />
+          </button>
+          <button
+            onClick={onExportExcel}
+            title="تحميل البيانات كإكسل"
+            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, padding: 7, color: "#fff", display: "flex" }}
+          >
+            <FileSpreadsheet size={15} />
+          </button>
+          <button
+            onClick={onExport}
+            title="تنزيل نسخة احتياطية"
+            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, padding: 7, color: "#fff", display: "flex" }}
+          >
+            <Download size={15} />
+          </button>
+          <button
+            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+            title="استيراد نسخة احتياطية"
+            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, padding: 7, color: "#fff", display: "flex" }}
+          >
+            <Upload size={15} />
+          </button>
+          <input
+            ref={excelInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files && e.target.files[0];
+              if (f) onImportExcel(f);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const f = e.target.files && e.target.files[0];
+              if (f) onImportFile(f);
+              e.target.value = "";
+            }}
+          />
+          <button
+            onClick={onLogout}
+            title="تسجيل خروج"
+            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: 8, padding: 7, color: "#fff", display: "flex" }}
+          >
+            <X size={15} />
+          </button>
+        </div>
+        <div style={{ display: "flex", gap: 4, overflowX: "auto" }}>
+          {items.map((it) => {
+            const active = tab === it.id;
+            const Icon = it.icon;
+            return (
+              <button
+                key={it.id}
+                onClick={() => setTab(it.id)}
+                style={{
+                  display: "flex", alignItems: "center", gap: 6,
+                  padding: "9px 14px", border: "none", whiteSpace: "nowrap",
+                  background: active ? BG : "transparent",
+                  color: active ? PRIMARY_DARK : "#D8DED6",
+                  borderRadius: "10px 10px 0 0",
+                  fontWeight: active ? 700 : 500, fontSize: 13.5,
+                }}
+              >
+                <Icon size={15} />
+                {it.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------- dashboard ---------------- */
+function Dashboard({ buildings, onGo, backupOverdue, onExportBackup }) {
+  const stats = buildings.map(({ id, data }) => {
+    const rooms = data.rooms;
+    const occupied = rooms.filter((r) => !r.vacant);
+    const vacant = rooms.filter((r) => r.vacant);
+    const expected = occupied.reduce((s, r) => s + (Number(r.tenant.rent) || 0), 0);
+    const arrears = rooms.reduce((s, r) => s + Math.max(0, getBalance(r)), 0);
+    return { id, name: data.name, total: rooms.length, occupied: occupied.length, vacant: vacant.length, expected, arrears };
+  });
+
+  const totalArrears = stats.reduce((s, b) => s + b.arrears, 0);
+  const totalExpected = stats.reduce((s, b) => s + b.expected, 0);
+  const totalUnits = stats.reduce((s, b) => s + b.total, 0);
+  const totalOccupied = stats.reduce((s, b) => s + b.occupied, 0);
+
+  const topArrears = buildings
+    .flatMap(({ id, data }) => data.rooms.filter((r) => getBalance(r) > 0).map((r) => ({ ...r, buildingId: id, buildingName: data.name, _balance: getBalance(r) })))
+    .sort((a, b) => b._balance - a._balance)
+    .slice(0, 6);
+
+  const dueSoon = buildings
+    .flatMap(({ id, data }) => data.rooms
+      .filter((r) => !r.vacant && r.tenant.dueDate)
+      .map((r) => ({ ...r, buildingId: id, buildingName: data.name, _days: daysUntil(r.tenant.dueDate) }))
+    )
+    .filter((r) => r._days !== null && r._days >= 0 && r._days <= 1)
+    .sort((a, b) => a._days - b._days);
+
+  const expiringContracts = buildings
+    .flatMap(({ id, data }) => data.rooms
+      .filter((r) => !r.vacant && r.tenant.contractEndDate)
+      .map((r) => ({ ...r, buildingId: id, buildingName: data.name, _days: daysUntil(r.tenant.contractEndDate) }))
+    )
+    .filter((r) => r._days !== null && r._days <= 30)
+    .sort((a, b) => a._days - b._days);
+
+  return (
+    <div>
+      {backupOverdue && (
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+          background: "#FDF1E7", border: `1px solid ${ACCENT}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+        }}>
+          <div style={{ fontSize: 12, color: PRIMARY_DARK }}>
+            <b>تذكير:</b> ما في نسخة احتياطية حديثة (آخر أسبوع). حمّلي نسخة الآن للأمان.
+          </div>
+          <button onClick={onExportBackup} style={btnStyle(ACCENT, "#fff", true)}><Download size={13} /> تنزيل الآن</button>
+        </div>
+      )}
+      <SectionTitle title="نظرة عامة" subtitle="ملخص حالة العمارتين اليوم" />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 18 }}>
+        <KpiCard label="إجمالي الوحدات" value={totalUnits} icon={DoorOpen} color={PRIMARY} />
+        <KpiCard label="الوحدات المؤجرة" value={totalOccupied} icon={Check} color={SUCCESS} />
+        <KpiCard label="الدخل الشهري المتوقع" value={fmtMoney(totalExpected)} icon={Wallet} color={ACCENT} />
+        <KpiCard label="إجمالي المتأخرات" value={fmtMoney(totalArrears)} icon={AlertCircle} color={DANGER} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+        {stats.map((b) => (
+          <div key={b.id} onClick={() => onGo(b.id)} style={cardStyle({ padding: 14, cursor: "pointer" })}>
+            <div style={{ fontWeight: 800, fontSize: 14.5, marginBottom: 8, color: PRIMARY_DARK }}>{b.name}</div>
+            <Row label="الوحدات" value={`${b.occupied} / ${b.total}`} />
+            <Row label="الفارغة" value={b.vacant} />
+            <Row label="المتوقع شهرياً" value={fmtMoney(b.expected)} />
+            <Row label="المتأخرات" value={fmtMoney(b.arrears)} valueColor={b.arrears > 0 ? DANGER : SUCCESS} />
+          </div>
+        ))}
+      </div>
+
+      <SectionTitle title="استحقاقات قريبة" subtitle="كل المستأجرين يلي استحقاقهم اليوم أو بكرة" />
+      {dueSoon.length === 0 ? (
+        <EmptyState text="ما في استحقاقات خلال اليوم أو بكرة." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+          {dueSoon.map((r) => (
+            <div key={r.id} style={cardStyle({ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" })}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.tenant.name || "—"}</div>
+                <div style={{ fontSize: 11.5, color: MUTED }}>{r.buildingName} · وحدة {r.room} · {fmtMoney(r.tenant.rent)}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: r._days === 0 ? DANGER : ACCENT }}>
+                  {r._days === 0 ? "مستحق اليوم" : "مستحق غداً"}
+                </span>
+                {r.tenant.phone && (
+                  <a href={waLink(r.tenant.phone, reminderMessage(r))} target="_blank" rel="noreferrer"
+                     style={{ ...btnStyle(SUCCESS, "#fff", true), textDecoration: "none" }}>
+                    <MessageCircle size={13} />
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {expiringContracts.length > 0 && (
+        <>
+          <SectionTitle title="عقود قاربت على الانتهاء" subtitle="خلال شهر أو أقل (أو منتهية أصلاً)" />
+          <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+            {expiringContracts.map((r) => (
+              <div key={r.id} style={cardStyle({ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" })}>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.tenant.name || "—"}</div>
+                  <div style={{ fontSize: 11.5, color: MUTED }}>{r.buildingName} · وحدة {r.room}</div>
+                </div>
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: r._days < 0 ? DANGER : ACCENT }}>
+                  {r._days < 0 ? `منتهي منذ ${Math.abs(r._days)} يوم` : `باقي ${r._days} يوم`}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <SectionTitle title="أكبر المتأخرات" subtitle="أعلى ٦ حالات متبقٍ عليها مبالغ" />
+      {topArrears.length === 0 ? (
+        <EmptyState text="لا توجد متأخرات حالياً — كل الحسابات مسددة." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {topArrears.map((r) => (
+            <div key={r.id} style={cardStyle({ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" })}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.tenant.name || "—"}</div>
+                <div style={{ fontSize: 11.5, color: MUTED }}>{r.buildingName} · وحدة {r.room}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ fontWeight: 800, color: DANGER, fontSize: 14 }}>{fmtMoney(r._balance)}</div>
+                {r.tenant.phone && (
+                  <a href={waLink(r.tenant.phone, reminderMessage(r))} target="_blank" rel="noreferrer"
+                     style={{ ...btnStyle(SUCCESS, "#fff", true), textDecoration: "none" }}>
+                    <MessageCircle size={13} />
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value, valueColor }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "3px 0", color: MUTED }}>
+      <span>{label}</span>
+      <span style={{ fontWeight: 700, color: valueColor || INK }}>{value}</span>
+    </div>
+  );
+}
+
+function KpiCard({ label, value, icon: Icon, color }) {
+  return (
+    <div style={cardStyle({ padding: 14 })}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <div style={{ width: 26, height: 26, borderRadius: 7, background: color + "1A", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <Icon size={14} color={color} />
+        </div>
+        <div style={{ fontSize: 11.5, color: MUTED, fontWeight: 600 }}>{label}</div>
+      </div>
+      <div style={{ fontSize: 19, fontWeight: 900, color: PRIMARY_DARK }}>{value}</div>
+    </div>
+  );
+}
+
+function SectionTitle({ title, subtitle }) {
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 16, fontWeight: 800, color: PRIMARY_DARK }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>{subtitle}</div>}
+    </div>
+  );
+}
+
+function EmptyState({ text }) {
+  return (
+    <div style={{ ...cardStyle({ padding: 24, textAlign: "center" }), color: MUTED, fontSize: 13 }}>
+      {text}
+    </div>
+  );
+}
+
+function cardStyle(extra = {}) {
+  return {
+    background: PAPER,
+    border: `1px solid ${BORDER}`,
+    borderRadius: 12,
+    ...extra,
+  };
+}
+
+/* ---------------- building view ---------------- */
+function BuildingView({ buildingId, building, search, setSearch, onPay, onEdit, onAddRoom, onDelete, onReceipts, onHistory, onQuickEndTenancy, onStatement }) {
+  const filtered = building.rooms.filter((r) => {
+    const q = search.trim();
+    if (!q) return true;
+    return (r.room + " " + (r.tenant.name || "")).includes(q);
+  });
+
+  const sorted = [...filtered].sort((a, b) => a.room.localeCompare(b.room, "ar", { numeric: true }));
+
+  return (
+    <div>
+      <SectionTitle title={building.name} subtitle={`${building.rooms.length} وحدة إجمالاً`} />
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+        <div style={{ position: "relative", flex: 1 }}>
+          <Search size={15} color={MUTED} style={{ position: "absolute", right: 12, top: 11 }} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ابحث برقم الوحدة أو اسم المستأجر..."
+            style={{
+              width: "100%", padding: "10px 36px 10px 12px", borderRadius: 10,
+              border: `1px solid ${BORDER}`, fontSize: 13, background: PAPER, color: INK,
+            }}
+          />
+        </div>
+        <button onClick={onAddRoom} style={btnStyle(PRIMARY, "#fff")}>
+          <Plus size={15} /> وحدة جديدة
+        </button>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        {sorted.map((room) => (
+          <RoomCard key={room.id} room={room} onPay={() => onPay(room.id)} onEdit={() => onEdit(room.id, false)} onDelete={() => onDelete(room.id)} onReceipts={() => onReceipts(room.id)} onHistory={() => onHistory(room.id)} onQuickEndTenancy={() => onQuickEndTenancy(room.id)} onStatement={() => onStatement(room.id)} />
+        ))}
+        {sorted.length === 0 && <EmptyState text="لا توجد نتائج مطابقة." />}
+      </div>
+    </div>
+  );
+}
+
+function RoomCard({ room, onPay, onEdit, onDelete, onReceipts, onHistory, onQuickEndTenancy, onStatement }) {
+  const balance = getBalance(room);
+  const overdue = balance > 0;
+  return (
+    <div style={cardStyle({ padding: 0, overflow: "hidden" })}>
+      <div style={{ display: "flex" }}>
+        <div style={{
+          width: 6, background: room.vacant ? "#C9C0AC" : overdue ? DANGER : SUCCESS,
+        }} />
+        <div style={{ padding: "12px 14px", flex: 1 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{
+                  fontFamily: "monospace", fontWeight: 800, fontSize: 13, background: BG,
+                  padding: "2px 8px", borderRadius: 6, color: PRIMARY_DARK, border: `1px dashed ${BORDER}`,
+                }}>{room.room}</span>
+                {room.vacant && <span style={{ fontSize: 10.5, color: MUTED, fontWeight: 700 }}>فارغة</span>}
+              </div>
+              <div style={{ fontWeight: 800, fontSize: 14.5, marginTop: 5 }}>{room.tenant.name || "— بلا مستأجر —"}</div>
+            </div>
+            <div style={{ textAlign: "left" }}>
+              <div style={{ fontSize: 10.5, color: MUTED }}>{overdue ? "متبقٍ عليه" : "الرصيد"}</div>
+              <div style={{ fontWeight: 900, fontSize: 15, color: overdue ? DANGER : SUCCESS }}>{fmtMoney(balance)}</div>
+            </div>
+          </div>
+
+          {!room.vacant && (
+            <div style={{ display: "flex", gap: 14, flexWrap: "wrap", fontSize: 11.5, color: MUTED, marginBottom: 10 }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Wallet size={12} />{fmtMoney(room.tenant.rent)}/شهرياً</span>
+              {room.tenant.phone && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><Phone size={12} />{room.tenant.phone}</span>}
+              {room.tenant.contract && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><CreditCard size={12} />عقد {room.tenant.contract}</span>}
+              {room.lastPaymentDate && <span style={{ display: "flex", alignItems: "center", gap: 4 }}><CalendarDays size={12} />آخر دفعة {fmtDate(room.lastPaymentDate)}</span>}
+            </div>
+          )}
+
+          {room.history && room.history.length > 0 && (
+            <button onClick={onHistory} style={{ background: "none", border: "none", padding: 0, fontSize: 11, color: PRIMARY, marginBottom: 10, textDecoration: "underline", cursor: "pointer" }}>
+              {room.history.length} ساكن سابق — عرض السجل
+            </button>
+          )}
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button onClick={onPay} style={btnStyle(PRIMARY, "#fff", true)}><Wallet size={13} /> تسجيل دفعة</button>
+            <button onClick={onReceipts} style={btnStyle(ACCENT, "#fff", true)}><Receipt size={13} /> السندات</button>
+            {!room.vacant && overdue && room.tenant.phone && (
+              <a href={waLink(room.tenant.phone, reminderMessage(room))} target="_blank" rel="noreferrer" style={{ ...btnStyle(SUCCESS, "#fff", true), textDecoration: "none" }}>
+                <MessageCircle size={13} /> تذكير واتساب
+              </a>
+            )}
+            {!room.vacant && (
+              <button onClick={onQuickEndTenancy} style={btnStyle("transparent", DANGER, true, DANGER)}><LogOut size={13} /> إخراج المستأجر</button>
+            )}
+            <button onClick={onStatement} style={btnStyle("transparent", PRIMARY_DARK, true, BORDER)}><FileText size={13} /></button>
+            <button onClick={onHistory} style={btnStyle("transparent", PRIMARY_DARK, true, BORDER)}><History size={13} /></button>
+            <button onClick={onEdit} style={btnStyle("transparent", PRIMARY_DARK, true, BORDER)}><Pencil size={13} /> تعديل</button>
+            <button onClick={onDelete} style={{ ...btnStyle("transparent", DANGER, true, BORDER), marginRight: "auto" }}><Trash2 size={13} /></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function btnStyle(bg, color, small, border) {
+  return {
+    display: "flex", alignItems: "center", gap: 6, justifyContent: "center",
+    background: bg, color, border: border ? `1px solid ${border}` : "none",
+    borderRadius: 9, padding: small ? "7px 11px" : "10px 14px",
+    fontSize: small ? 12.5 : 13.5, fontWeight: 700, whiteSpace: "nowrap",
+  };
+}
+
+/* ---------------- pay modal ---------------- */
+function PayModal({ room, onClose, onSubmitPayment, onSubmitCharge }) {
+  const [mode, setMode] = useState("payment");
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("cash");
+  const [receipt, setReceipt] = useState("");
+  const [date, setDate] = useState(todayStr());
+  const [note, setNote] = useState("");
+  const [chargeAmount, setChargeAmount] = useState(room?.tenant?.rent || "");
+
+  if (!room) return null;
+  const total = Number(amount) || 0;
+
+  return (
+    <ModalShell title={`${room.room} — ${room.tenant.name || "بلا مستأجر"}`} onClose={onClose}>
+      <div style={{ display: "flex", gap: 6, marginBottom: 16 }}>
+        <TabPill active={mode === "payment"} onClick={() => setMode("payment")} label="تسجيل دفعة" />
+        <TabPill active={mode === "charge"} onClick={() => setMode("charge")} label="إضافة استحقاق" />
+      </div>
+
+      {mode === "payment" ? (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <Field label="المبلغ"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={inputStyle} placeholder="0" /></Field>
+            <Field label="طريقة الدفع">
+              <select value={method} onChange={(e) => setMethod(e.target.value)} style={inputStyle}>
+                <option value="cash">نقد</option>
+                <option value="transfer">حوالة</option>
+                <option value="platform">منصة</option>
+              </select>
+            </Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <Field label="رقم السند"><input value={receipt} onChange={(e) => setReceipt(e.target.value)} style={inputStyle} /></Field>
+            <Field label="التاريخ"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inputStyle} /></Field>
+          </div>
+          <Field label="ملاحظة"><input value={note} onChange={(e) => setNote(e.target.value)} style={inputStyle} /></Field>
+
+          <div style={{ margin: "14px 0", padding: "10px 12px", background: BG, borderRadius: 9, display: "flex", justifyContent: "space-between", fontWeight: 800 }}>
+            <span>إجمالي الدفعة</span>
+            <span style={{ color: PRIMARY_DARK }}>{fmtMoney(total)}</span>
+          </div>
+
+          <ModalActions
+            onClose={onClose}
+            onSave={() => onSubmitPayment({
+              cash: method === "cash" ? amount : 0,
+              transfer: method === "transfer" ? amount : 0,
+              platform: method === "platform" ? amount : 0,
+              receipt, date, note,
+            })}
+            disabled={total <= 0}
+            label="حفظ الدفعة"
+          />
+        </>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: MUTED, marginBottom: 10 }}>يضاف هذا المبلغ إلى المتبقي على المستأجر (مثال: استحقاق شهر جديد).</div>
+          <Field label="المبلغ"><input type="number" value={chargeAmount} onChange={(e) => setChargeAmount(e.target.value)} style={inputStyle} /></Field>
+          <Field label="التاريخ"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inputStyle} /></Field>
+          <Field label="ملاحظة"><input value={note} onChange={(e) => setNote(e.target.value)} style={inputStyle} placeholder="استحقاق شهر..." /></Field>
+          <ModalActions onClose={onClose} onSave={() => onSubmitCharge({ amount: chargeAmount, date, note })} disabled={!(Number(chargeAmount) > 0)} label="إضافة الاستحقاق" />
+        </>
+      )}
+
+      {room.payments && room.payments.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 8, color: MUTED }}>سجل الحركات الأخيرة</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 160, overflowY: "auto" }}>
+            {room.payments.slice(0, 8).map((p) => (
+              <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, padding: "6px 10px", background: BG, borderRadius: 7 }}>
+                <span>{p.type === "payment" ? "دفعة" : "استحقاق"} · {fmtDate(p.date)} {p.receipt ? `· سند ${p.receipt}` : ""}</span>
+                <span style={{ fontWeight: 700, color: p.type === "payment" ? SUCCESS : DANGER }}>
+                  {p.type === "payment" ? "-" : "+"}{fmtMoney(p.type === "payment" ? p.total : p.amount)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+function TabPill({ active, onClick, label }) {
+  return (
+    <button onClick={onClick} style={{
+      flex: 1, padding: "8px 10px", borderRadius: 8, border: "none",
+      background: active ? PRIMARY : BG, color: active ? "#fff" : MUTED, fontWeight: 700, fontSize: 12.5,
+    }}>{label}</button>
+  );
+}
+
+function Field({ label, icon: Icon, children }) {
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 11.5, color: MUTED, marginBottom: 4, display: "flex", alignItems: "center", gap: 4, fontWeight: 600 }}>
+        {Icon && <Icon size={11} />}{label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function PhotoField({ label, photo, loading, uploading, onUpload, onRemove }) {
+  const inputRef = useRef(null);
+  return (
+    <Field label={label}>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const f = e.target.files && e.target.files[0];
+          if (f) onUpload(f);
+          e.target.value = "";
+        }}
+      />
+      {loading ? (
+        <div style={{ ...inputStyle, display: "flex", alignItems: "center", justifyContent: "center", color: MUTED, fontSize: 11.5 }}>...</div>
+      ) : photo ? (
+        <div style={{ position: "relative" }}>
+          <a href={photo} target="_blank" rel="noreferrer">
+            <img src={photo} alt={label} style={{ width: "100%", height: 90, objectFit: "cover", borderRadius: 8, border: `1px solid ${BORDER}` }} />
+          </a>
+          <button onClick={onRemove} style={{ position: "absolute", top: 4, left: 4, background: "rgba(0,0,0,0.6)", border: "none", borderRadius: 6, padding: 3, color: "#fff" }}>
+            <X size={12} />
+          </button>
+        </div>
+      ) : (
+        <button
+          onClick={() => inputRef.current && inputRef.current.click()}
+          disabled={uploading}
+          style={{ ...inputStyle, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, color: MUTED, cursor: "pointer", border: `1px dashed ${BORDER}` }}
+        >
+          <ImagePlus size={14} /> {uploading ? "جارٍ الرفع..." : "رفع صورة"}
+        </button>
+      )}
+    </Field>
+  );
+}
+
+const inputStyle = {
+  width: "100%", padding: "9px 10px", borderRadius: 8, border: `1px solid ${BORDER}`,
+  fontSize: 13, background: "#fff", color: INK,
+};
+
+function ModalActions({ onClose, onSave, disabled, label }) {
+  return (
+    <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+      <button onClick={onSave} disabled={disabled} style={{ ...btnStyle(disabled ? "#C9C0AC" : PRIMARY, "#fff"), flex: 1, opacity: disabled ? 0.7 : 1 }}>
+        <Check size={14} /> {label}
+      </button>
+      <button onClick={onClose} style={btnStyle("transparent", MUTED, false, BORDER)}>إلغاء</button>
+    </div>
+  );
+}
+
+/* ---------------- edit modal ---------------- */
+function EditModal({ room, isNew, onClose, onSave, onEndTenancy }) {
+  const [form, setForm] = useState(() => ({
+    room: room.room,
+    vacant: room.vacant,
+    name: room.tenant.name,
+    idNumber: room.tenant.idNumber,
+    phone: room.tenant.phone,
+    contract: room.tenant.contract,
+    dueDate: room.tenant.dueDate,
+    rent: room.tenant.rent,
+    moveInDate: room.tenant.moveInDate || "",
+    contractEndDate: room.tenant.contractEndDate || "",
+  }));
+  const [confirmingEnd, setConfirmingEnd] = useState(false);
+  const [endDate, setEndDate] = useState(todayStr());
+  const [idPhoto, setIdPhoto] = useState(null);
+  const [contractPhoto, setContractPhoto] = useState(null);
+  const [photosLoading, setPhotosLoading] = useState(true);
+  const [photoUploading, setPhotoUploading] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [idP, cP] = await Promise.all([loadPhoto(room.id, "id"), loadPhoto(room.id, "contract")]);
+      if (!cancelled) {
+        setIdPhoto(idP);
+        setContractPhoto(cP);
+        setPhotosLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [room.id]);
+
+  async function handlePhotoUpload(kind, file) {
+    if (!file) return;
+    setPhotoUploading(kind);
+    try {
+      const dataUrl = await compressImageFile(file, 1000, 0.6);
+      await savePhoto(room.id, kind, dataUrl);
+      if (kind === "id") setIdPhoto(dataUrl);
+      else setContractPhoto(dataUrl);
+    } catch (e) {
+      // ignore
+    }
+    setPhotoUploading("");
+  }
+
+  async function handlePhotoRemove(kind) {
+    await savePhoto(room.id, kind, "");
+    if (kind === "id") setIdPhoto(null);
+    else setContractPhoto(null);
+  }
+
+  function set(k, v) {
+    setForm((f) => {
+      if (k === "moveInDate") {
+        return { ...f, moveInDate: v, dueDate: v };
+      }
+      return { ...f, [k]: v };
+    });
+  }
+
+  function save() {
+    onSave({
+      room: form.room || room.room,
+      vacant: form.vacant,
+      tenant: {
+        name: form.name, idNumber: form.idNumber, phone: form.phone,
+        contract: form.contract, dueDate: form.dueDate, rent: Number(form.rent) || 0,
+        moveInDate: form.moveInDate, contractEndDate: form.contractEndDate,
+      },
+    });
+  }
+
+  return (
+    <ModalShell title={isNew ? "وحدة جديدة" : `تعديل — وحدة ${room.room}`} onClose={onClose}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 4 }}>
+        <Field label="رقم الوحدة"><input value={form.room} onChange={(e) => set("room", e.target.value)} style={inputStyle} placeholder="مثال: 101-1" /></Field>
+        <Field label="الحالة">
+          <select value={form.vacant ? "1" : "0"} onChange={(e) => set("vacant", e.target.value === "1")} style={inputStyle}>
+            <option value="0">مؤجرة</option>
+            <option value="1">فارغة</option>
+          </select>
+        </Field>
+      </div>
+      <Field label="اسم المستأجر"><input value={form.name} onChange={(e) => set("name", e.target.value)} style={inputStyle} /></Field>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <Field label="رقم الهوية"><input value={form.idNumber} onChange={(e) => set("idNumber", e.target.value)} style={inputStyle} /></Field>
+        <Field label="الجوال"><input value={form.phone} onChange={(e) => set("phone", e.target.value)} style={inputStyle} /></Field>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <Field label="رقم العقد"><input value={form.contract} onChange={(e) => set("contract", e.target.value)} style={inputStyle} /></Field>
+        <Field label="تاريخ دخول المستأجر"><input type="date" value={form.moveInDate} onChange={(e) => set("moveInDate", e.target.value)} style={inputStyle} /></Field>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        <Field label="القيمة الإيجارية"><input type="number" value={form.rent} onChange={(e) => set("rent", e.target.value)} style={inputStyle} /></Field>
+        <Field label="تاريخ الاستحقاق القادم — تلقائي">
+          <div style={{ ...inputStyle, background: BG, color: INK, fontWeight: 700, display: "flex", alignItems: "center" }}>
+            {form.dueDate ? fmtDate(form.dueDate) : "—"}
+          </div>
+        </Field>
+      </div>
+      <Field label="تاريخ انتهاء العقد"><input type="date" value={form.contractEndDate} onChange={(e) => set("contractEndDate", e.target.value)} style={inputStyle} /></Field>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+        <PhotoField
+          label="صورة الهوية"
+          photo={idPhoto}
+          loading={photosLoading}
+          uploading={photoUploading === "id"}
+          onUpload={(file) => handlePhotoUpload("id", file)}
+          onRemove={() => handlePhotoRemove("id")}
+        />
+        <PhotoField
+          label="صورة العقد"
+          photo={contractPhoto}
+          loading={photosLoading}
+          uploading={photoUploading === "contract"}
+          onUpload={(file) => handlePhotoUpload("contract", file)}
+          onRemove={() => handlePhotoRemove("contract")}
+        />
+      </div>
+
+      <Field label="الرصيد الحالي (متبقٍ) — يُحسب تلقائياً">
+        <div style={{ ...inputStyle, background: BG, color: getBalance(room) > 0 ? DANGER : SUCCESS, fontWeight: 800, display: "flex", alignItems: "center" }}>
+          {fmtMoney(getBalance(room))}
+        </div>
+      </Field>
+
+      <ModalActions onClose={onClose} onSave={save} label="حفظ" disabled={!form.room} />
+
+      {!room.vacant && onEndTenancy && (
+        <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px dashed ${BORDER}` }}>
+          {!confirmingEnd ? (
+            <button
+              onClick={() => setConfirmingEnd(true)}
+              style={{ width: "100%", padding: "10px", borderRadius: 9, border: `1px solid ${DANGER}`, background: "transparent", color: DANGER, fontWeight: 700, fontSize: 13 }}
+            >
+              تسجيل مغادرة هذا المستأجر
+            </button>
+          ) : (
+            <div>
+              <div style={{ fontSize: 12, color: MUTED, marginBottom: 8 }}>
+                رح ينحفظ {room.tenant.name} بسجل الساكنين السابقين لهذه الوحدة، وتصير الوحدة فارغة جاهزة لمستأجر جديد.
+              </div>
+              <Field label="تاريخ المغادرة"><input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} style={inputStyle} /></Field>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => onEndTenancy(endDate)} style={{ ...btnStyle(DANGER, "#fff"), flex: 1 }}>تأكيد المغادرة</button>
+                <button onClick={() => setConfirmingEnd(false)} style={btnStyle("transparent", MUTED, false, BORDER)}>إلغاء</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+/* ---------------- tenant history modal ---------------- */
+function HistoryModal({ room, onClose }) {
+  if (!room) return null;
+  const history = room.history || [];
+  return (
+    <ModalShell title={`سجل الساكنين — وحدة ${room.room}`} onClose={onClose}>
+      {!room.vacant && (
+        <div style={cardStyle({ padding: 12, marginBottom: 14, background: BG, border: "none" })}>
+          <div style={{ fontSize: 10.5, color: MUTED, fontWeight: 700, marginBottom: 4 }}>الساكن الحالي</div>
+          <div style={{ fontWeight: 800, fontSize: 14 }}>{room.tenant.name}</div>
+          <div style={{ fontSize: 11.5, color: MUTED, marginTop: 4 }}>
+            {room.tenant.moveInDate ? `منذ ${fmtDate(room.tenant.moveInDate)}` : "تاريخ الدخول غير مسجّل"}
+            {room.tenant.phone && ` · ${room.tenant.phone}`}
+          </div>
+        </div>
+      )}
+
+      {history.length === 0 ? (
+        <EmptyState text="لا يوجد سجل مغادرين سابقين لهذه الوحدة." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {history.map((h, i) => (
+            <div key={i} style={cardStyle({ padding: 12 })}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{h.name || "—"}</div>
+                {h.finalBalance != null && h.finalBalance > 0 && (
+                  <div style={{ fontSize: 11.5, fontWeight: 700, color: DANGER }}>متبقٍ عند المغادرة: {fmtMoney(h.finalBalance)}</div>
+                )}
+              </div>
+              <div style={{ fontSize: 11.5, color: MUTED, marginTop: 4 }}>
+                {h.moveInDate ? `من ${fmtDate(h.moveInDate)} ` : ""}
+                {h.moveOutDate ? `إلى ${fmtDate(h.moveOutDate)}` : ""}
+                {!h.moveInDate && !h.moveOutDate && (h.note || "بيانات مستوردة، بدون تواريخ دقيقة")}
+              </div>
+              {(h.phone || h.contract) && (
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>
+                  {h.phone && `${h.phone}`}{h.phone && h.contract ? " · " : ""}{h.contract && `عقد ${h.contract}`}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+/* ---------------- receipts ledger modal ---------------- */
+function ReceiptsModal({ room, onClose, onAddRow }) {
+  const [adding, setAdding] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState("cash");
+  const [receipt, setReceipt] = useState("");
+  const [date, setDate] = useState(todayStr());
+  if (!room) return null;
+  const monthly = buildMonthlyBreakdown(room);
+
+  function submit() {
+    onAddRow({
+      cash: method === "cash" ? amount : 0,
+      transfer: method === "transfer" ? amount : 0,
+      platform: method === "platform" ? amount : 0,
+      receipt, date, note: "",
+    });
+    setAdding(false);
+    setAmount("");
+    setReceipt("");
+  }
+
+  return (
+    <ModalShell title={`السندات — وحدة ${room.room} — ${room.tenant.name || "بلا مستأجر"}`} onClose={onClose}>
+      {!adding ? (
+        <button onClick={() => setAdding(true)} style={{ ...btnStyle(PRIMARY, "#fff"), width: "100%", marginBottom: 14 }}>
+          <Plus size={14} /> إضافة سند جديد
+        </button>
+      ) : (
+        <div style={cardStyle({ padding: 12, marginBottom: 14 })}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+            <Field label="المبلغ"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={inputStyle} placeholder="0" /></Field>
+            <Field label="طريقة الدفع">
+              <select value={method} onChange={(e) => setMethod(e.target.value)} style={inputStyle}>
+                <option value="cash">نقد</option>
+                <option value="transfer">حوالة</option>
+                <option value="platform">منصة</option>
+              </select>
+            </Field>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 10 }}>
+            <Field label="رقم السند"><input value={receipt} onChange={(e) => setReceipt(e.target.value)} style={inputStyle} /></Field>
+            <Field label="التاريخ"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inputStyle} /></Field>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={submit} disabled={!(Number(amount) > 0)} style={{ ...btnStyle(PRIMARY, "#fff", true), flex: 1, opacity: Number(amount) > 0 ? 1 : 0.6 }}>حفظ السند</button>
+            <button onClick={() => setAdding(false)} style={btnStyle("transparent", MUTED, true, BORDER)}>إلغاء</button>
+          </div>
+        </div>
+      )}
+
+      {monthly.length === 0 ? (
+        <EmptyState text="لا يوجد أي سند مسجّل لهذه الوحدة بعد." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {monthly.map((m) => (
+            <div key={m.ym} style={cardStyle({ padding: 12 })}>
+              <div style={{ fontWeight: 800, fontSize: 13.5, marginBottom: 8, color: PRIMARY_DARK }}>{m.label}</div>
+              <Row label="المبلغ كاش" value={fmtMoney(m.cash)} />
+              <Row label="المبلغ حوالة" value={fmtMoney(m.transfer)} />
+              <Row label="المبلغ منصة" value={fmtMoney(m.platform)} />
+              <Row label="السند" value={m.receipts || "—"} />
+              <Row label="تاريخة" value={fmtDate(m.date)} />
+              <Row label="متبقي" value={fmtMoney(m.remaining)} valueColor={m.remaining > 0 ? DANGER : SUCCESS} />
+            </div>
+          ))}
+        </div>
+      )}
+    </ModalShell>
+  );
+}
+
+function ConfirmModal({ title, message, confirmLabel, onConfirm, onCancel }) {
+  return (
+    <ModalShell title={title} onClose={onCancel}>
+      <div style={{ fontSize: 13.5, color: INK, marginBottom: 18, lineHeight: 1.6 }}>{message}</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onConfirm} style={{ ...btnStyle(DANGER, "#fff"), flex: 1 }}>{confirmLabel}</button>
+        <button onClick={onCancel} style={btnStyle("transparent", MUTED, false, BORDER)}>إلغاء</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function WipeConfirmModal({ onConfirm, onCancel }) {
+  const [typed, setTyped] = useState("");
+  const ready = typed.trim() === "امسح";
+  return (
+    <ModalShell title="مسح كل البيانات المالية" onClose={onCancel}>
+      <div style={{ fontSize: 13.5, color: INK, marginBottom: 12, lineHeight: 1.7 }}>
+        هاد الإجراء رح يمسح <b>كل السندات والاستحقاقات والأرصدة</b> لجميع الوحدات بكلا العمارتين نهائياً. بيانات المستأجرين نفسها (الاسم، الجوال، العقد، الإيجار) ما بتتأثر.
+        <br /><br />
+        هاد الإجراء <b style={{ color: DANGER }}>ما ينرجع</b>. إذا متأكدة، اكتبي كلمة "<b>امسح</b>" بالمربع تحت للتأكيد.
+      </div>
+      <input
+        value={typed}
+        onChange={(e) => setTyped(e.target.value)}
+        placeholder="اكتبي: امسح"
+        style={{ ...inputStyle, marginBottom: 14, textAlign: "center", fontWeight: 700 }}
+      />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={onConfirm} disabled={!ready} style={{ ...btnStyle(DANGER, "#fff"), flex: 1, opacity: ready ? 1 : 0.5 }}>تأكيد المسح النهائي</button>
+        <button onClick={onCancel} style={btnStyle("transparent", MUTED, false, BORDER)}>إلغاء</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function EndTenancyModal({ room, onClose, onConfirm }) {
+  const [moveOutDate, setMoveOutDate] = useState(todayStr());
+  if (!room) return null;
+  return (
+    <ModalShell title={`إخراج المستأجر — وحدة ${room.room}`} onClose={onClose}>
+      <div style={{ fontSize: 13.5, color: INK, marginBottom: 14, lineHeight: 1.6 }}>
+        رح ينحفظ <b>{room.tenant.name}</b> بسجل الساكنين السابقين لهذه الوحدة (بكل بياناته)، وتصير الوحدة فارغة جاهزة لمستأجر جديد.
+      </div>
+      <Field label="تاريخ المغادرة"><input type="date" value={moveOutDate} onChange={(e) => setMoveOutDate(e.target.value)} style={inputStyle} /></Field>
+      <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+        <button onClick={() => onConfirm(moveOutDate)} style={{ ...btnStyle(DANGER, "#fff"), flex: 1 }}><LogOut size={14} /> تأكيد الإخراج</button>
+        <button onClick={onClose} style={btnStyle("transparent", MUTED, false, BORDER)}>إلغاء</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function StatementModal({ room, buildingName, onClose }) {
+  if (!room) return null;
+  const opening = Number(room.openingBalance ?? room.balance) || 0;
+  const entries = (room.payments || [])
+    .map((p) => ({
+      date: p.date || p.createdAt || "",
+      label: p.type === "payment" ? `سند دفع${p.receipt ? " رقم " + p.receipt : ""}` : (p.note || "استحقاق شهري"),
+      amount: p.type === "payment" ? -(Number(p.total) || 0) : (Number(p.amount) || 0),
+    }))
+    .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+
+  let running = opening;
+  const rows = entries.map((e) => {
+    running += e.amount;
+    return { ...e, running };
+  });
+
+  return (
+    <ModalShell title="كشف حساب المستأجر" onClose={onClose}>
+      <div className="print-statement">
+        <div style={{ textAlign: "center", marginBottom: 16 }}>
+          <div style={{ fontWeight: 900, fontSize: 17, color: PRIMARY_DARK }}>{buildingName}</div>
+          <div style={{ fontSize: 12, color: MUTED }}>كشف حساب — وحدة {room.room}</div>
+        </div>
+        <div style={{ marginBottom: 14, fontSize: 12.5 }}>
+          <Row label="المستأجر" value={room.tenant.name || "—"} />
+          <Row label="رقم الهوية" value={room.tenant.idNumber || "—"} />
+          <Row label="الجوال" value={room.tenant.phone || "—"} />
+          <Row label="رقم العقد" value={room.tenant.contract || "—"} />
+          <Row label="القيمة الإيجارية" value={fmtMoney(room.tenant.rent)} />
+          <Row label="تاريخ الطباعة" value={fmtDate(todayStr())} />
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr 1fr", gap: 6, fontSize: 10.5, color: MUTED, fontWeight: 700, padding: "0 4px", marginBottom: 4 }}>
+          <span>التاريخ</span>
+          <span>البيان</span>
+          <span>المبلغ</span>
+          <span>الرصيد</span>
+        </div>
+        {opening !== 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr 1fr", gap: 6, fontSize: 11.5, padding: "6px 4px", borderBottom: `1px solid ${BORDER}` }}>
+            <span>—</span>
+            <span>رصيد افتتاحي</span>
+            <span>{fmtMoney(opening)}</span>
+            <span style={{ fontWeight: 700 }}>{fmtMoney(opening)}</span>
+          </div>
+        )}
+        {rows.length === 0 ? (
+          <EmptyState text="لا يوجد أي حركة مسجّلة لهذه الوحدة." />
+        ) : (
+          rows.map((r, i) => (
+            <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr 1fr 1fr", gap: 6, fontSize: 11.5, padding: "6px 4px", borderBottom: `1px solid ${BORDER}` }}>
+              <span>{fmtDate(r.date)}</span>
+              <span>{r.label}</span>
+              <span style={{ color: r.amount < 0 ? SUCCESS : DANGER, fontWeight: 700 }}>{r.amount < 0 ? "-" : "+"}{fmtMoney(Math.abs(r.amount))}</span>
+              <span style={{ fontWeight: 700 }}>{fmtMoney(r.running)}</span>
+            </div>
+          ))
+        )}
+
+        <div style={{ marginTop: 16, padding: "10px 12px", background: BG, borderRadius: 9, display: "flex", justifyContent: "space-between", fontWeight: 800 }}>
+          <span>الرصيد النهائي (المتبقي)</span>
+          <span style={{ color: running > 0 ? DANGER : SUCCESS }}>{fmtMoney(running)}</span>
+        </div>
+      </div>
+
+      <div className="no-print" style={{ display: "flex", gap: 8, marginTop: 18 }}>
+        <button onClick={() => window.print()} style={{ ...btnStyle(PRIMARY, "#fff"), flex: 1 }}><Printer size={14} /> طباعة / حفظ PDF</button>
+        <button onClick={onClose} style={btnStyle("transparent", MUTED, false, BORDER)}>إغلاق</button>
+      </div>
+    </ModalShell>
+  );
+}
+
+function ModalShell({ title, onClose, children }) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0, background: "rgba(18,20,18,0.55)", zIndex: 50,
+      display: "flex", alignItems: "flex-end", justifyContent: "center",
+    }} onClick={onClose}>
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: PAPER, width: "100%", maxWidth: 480, borderRadius: "16px 16px 0 0",
+          padding: "18px 18px 24px", maxHeight: "88vh", overflowY: "auto",
+          boxShadow: "0 -6px 30px rgba(0,0,0,0.2)",
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: PRIMARY_DARK }}>{title}</div>
+          <button onClick={onClose} style={{ background: BG, border: "none", borderRadius: 8, padding: 6 }}><X size={16} /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Toast({ msg }) {
+  return (
+    <div style={{
+      position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)",
+      background: PRIMARY_DARK, color: "#fff", padding: "10px 18px", borderRadius: 10,
+      fontSize: 13, fontWeight: 700, zIndex: 60, boxShadow: "0 6px 20px rgba(0,0,0,0.25)",
+    }}>{msg}</div>
+  );
+}
+
+/* ---------------- reports ---------------- */
+function Reports({ buildings }) {
+  const [buildingFilter, setBuildingFilter] = useState("all");
+  const [from, setFrom] = useState(() => todayStr().slice(0, 8) + "01");
+  const [to, setTo] = useState(todayStr());
+
+  const relevant = buildings.filter((b) => buildingFilter === "all" || b.id === buildingFilter);
+
+  const allPayments = relevant.flatMap(({ id, data }) =>
+    data.rooms.flatMap((r) =>
+      (r.payments || [])
+        .filter((p) => p.type === "payment")
+        .filter((p) => (!from || p.date >= from) && (!to || p.date <= to))
+        .map((p) => ({ ...p, room: r.room, tenant: r.tenant.name, buildingName: data.name }))
+    )
+  );
+
+  const totalCash = allPayments.reduce((s, p) => s + (Number(p.cash) || 0), 0);
+  const totalTransfer = allPayments.reduce((s, p) => s + (Number(p.transfer) || 0), 0);
+  const totalPlatform = allPayments.reduce((s, p) => s + (Number(p.platform) || 0), 0);
+  const grandTotal = totalCash + totalTransfer + totalPlatform;
+
+  const arrears = relevant
+    .flatMap(({ id, data }) => data.rooms.filter((r) => getBalance(r) > 0).map((r) => ({ ...r, buildingName: data.name, _balance: getBalance(r) })))
+    .sort((a, b) => b._balance - a._balance);
+
+  const now = new Date();
+  const curYear = now.getFullYear();
+  const curMonth = now.getMonth() + 1;
+  function monthIncome(year, month) {
+    const mm = String(month).padStart(2, "0");
+    let total = 0;
+    relevant.forEach(({ data }) => data.rooms.forEach((r) => (r.payments || []).forEach((p) => {
+      if (p.type === "payment" && p.date && p.date.slice(0, 4) === String(year) && p.date.slice(5, 7) === mm) {
+        total += Number(p.total) || 0;
+      }
+    })));
+    return total;
+  }
+  const thisMonthIncome = monthIncome(curYear, curMonth);
+  const lastYearSameMonth = monthIncome(curYear - 1, curMonth);
+  const yoyDiff = thisMonthIncome - lastYearSameMonth;
+  const yoyPct = lastYearSameMonth > 0 ? Math.round((yoyDiff / lastYearSameMonth) * 100) : null;
+  const monthNames = ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"];
+
+  return (
+    <div>
+      <SectionTitle title="التقارير" subtitle="دخل الفترة المسجّل داخل النظام والمتأخرات الحالية" />
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <select value={buildingFilter} onChange={(e) => setBuildingFilter(e.target.value)} style={{ ...inputStyle, width: "auto", flex: "1 1 140px" }}>
+          <option value="all">كلا العمارتين</option>
+          {buildings.map((b) => <option key={b.id} value={b.id}>{b.data.name}</option>)}
+        </select>
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...inputStyle, width: "auto", flex: "1 1 130px" }} />
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...inputStyle, width: "auto", flex: "1 1 130px" }} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 20 }}>
+        <KpiCard label="إجمالي الدخل بالفترة" value={fmtMoney(grandTotal)} icon={Wallet} color={PRIMARY} />
+        <KpiCard label="عدد الدفعات" value={allPayments.length} icon={Receipt} color={ACCENT} />
+        <KpiCard label="نقداً" value={fmtMoney(totalCash)} icon={Banknote} color={SUCCESS} />
+        <KpiCard label="حوالة / منصة" value={fmtMoney(totalTransfer + totalPlatform)} icon={ArrowLeftRight} color={PRIMARY} />
+      </div>
+
+      <SectionTitle title="مقارنة سنوية" subtitle={`دخل ${monthNames[curMonth - 1]} مقارنة بنفس الشهر السنة الماضية`} />
+      <div style={cardStyle({ padding: 14, marginBottom: 20 })}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
+          <div>
+            <div style={{ fontSize: 10.5, color: MUTED }}>{monthNames[curMonth - 1]} {curYear}</div>
+            <div style={{ fontWeight: 900, fontSize: 16, color: PRIMARY_DARK }}>{fmtMoney(thisMonthIncome)}</div>
+          </div>
+          <div style={{ textAlign: "left" }}>
+            <div style={{ fontSize: 10.5, color: MUTED }}>{monthNames[curMonth - 1]} {curYear - 1}</div>
+            <div style={{ fontWeight: 900, fontSize: 16, color: MUTED }}>{fmtMoney(lastYearSameMonth)}</div>
+          </div>
+        </div>
+        {lastYearSameMonth > 0 ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: yoyDiff >= 0 ? SUCCESS : DANGER }}>
+            {yoyDiff >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
+            {yoyDiff >= 0 ? "زيادة" : "انخفاض"} {Math.abs(yoyPct)}% ({fmtMoney(Math.abs(yoyDiff))})
+          </div>
+        ) : (
+          <div style={{ fontSize: 11.5, color: MUTED }}>لا يوجد بيانات مسجّلة لنفس الشهر بالسنة الماضية للمقارنة.</div>
+        )}
+      </div>
+
+      <SectionTitle title="المتأخرات الحالية" subtitle={`${arrears.length} حالة`} />
+      {arrears.length === 0 ? (
+        <EmptyState text="لا توجد متأخرات." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+          {arrears.map((r) => (
+            <div key={r.id} style={cardStyle({ padding: "10px 14px", display: "flex", justifyContent: "space-between" })}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13 }}>{r.tenant.name || "—"} <span style={{ color: MUTED, fontWeight: 500 }}>· {r.buildingName} · وحدة {r.room}</span></div>
+              </div>
+              <div style={{ fontWeight: 800, color: DANGER }}>{fmtMoney(r._balance)}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <SectionTitle title="آخر الدفعات المسجّلة" />
+      {allPayments.length === 0 ? (
+        <EmptyState text="لم تُسجَّل أي دفعات ضمن هذه الفترة بعد." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {allPayments.slice(0, 25).map((p) => (
+            <div key={p.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "8px 12px", background: PAPER, border: `1px solid ${BORDER}`, borderRadius: 8 }}>
+              <span>{fmtDate(p.date)} · {p.tenant || "—"} · وحدة {p.room}</span>
+              <span style={{ fontWeight: 700, color: SUCCESS }}>{fmtMoney(p.total)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- expenses ---------------- */
+function ExpensesView({ buildings, onAddExpense, onDeleteExpense }) {
+  const [buildingFilter, setBuildingFilter] = useState(buildings[0].id);
+  const [desc, setDesc] = useState("");
+  const [amount, setAmount] = useState("");
+  const [date, setDate] = useState(todayStr());
+
+  const building = buildings.find((b) => b.id === buildingFilter);
+  const expenses = ((building && building.data.expenses) || []).slice().sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const total = expenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
+
+  const grandTotal = buildings.reduce((s, b) => s + ((b.data.expenses || []).reduce((s2, e) => s2 + (Number(e.amount) || 0), 0)), 0);
+
+  function submit() {
+    if (!desc.trim() || !(Number(amount) > 0)) return;
+    onAddExpense(buildingFilter, { description: desc.trim(), amount, date });
+    setDesc("");
+    setAmount("");
+    setDate(todayStr());
+  }
+
+  return (
+    <div>
+      <SectionTitle title="المصاريف" subtitle="مصاريف الصيانة والمشتريات لكل عمارة" />
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 16 }}>
+        <KpiCard label="إجمالي مصاريف كلا العمارتين" value={fmtMoney(grandTotal)} icon={ShoppingCart} color={DANGER} />
+        <KpiCard label={`مصاريف ${building ? building.data.name : ""}`} value={fmtMoney(total)} icon={Wallet} color={ACCENT} />
+      </div>
+
+      <select value={buildingFilter} onChange={(e) => setBuildingFilter(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 14 }}>
+        {buildings.map((b) => <option key={b.id} value={b.id}>{b.data.name}</option>)}
+      </select>
+
+      <div style={cardStyle({ padding: 14, marginBottom: 18 })}>
+        <div style={{ fontSize: 12.5, fontWeight: 800, marginBottom: 10, color: PRIMARY_DARK }}>إضافة مصروف جديد</div>
+        <Field label="الوصف"><input value={desc} onChange={(e) => setDesc(e.target.value)} style={inputStyle} placeholder="مثال: شراء مكيف لوحدة 203" /></Field>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <Field label="المبلغ"><input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} style={inputStyle} /></Field>
+          <Field label="التاريخ"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={inputStyle} /></Field>
+        </div>
+        <button onClick={submit} disabled={!desc.trim() || !(Number(amount) > 0)} style={{ ...btnStyle(PRIMARY, "#fff"), width: "100%", opacity: (!desc.trim() || !(Number(amount) > 0)) ? 0.6 : 1 }}>
+          <Plus size={14} /> إضافة المصروف
+        </button>
+      </div>
+
+      {expenses.length === 0 ? (
+        <EmptyState text="لا توجد مصاريف مسجّلة لهذه العمارة بعد." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {expenses.map((e) => (
+            <div key={e.id} style={cardStyle({ padding: "10px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" })}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 13.5 }}>{e.description}</div>
+                <div style={{ fontSize: 11.5, color: MUTED }}>{fmtDate(e.date)}</div>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ fontWeight: 800, color: DANGER, fontSize: 14 }}>{fmtMoney(e.amount)}</div>
+                <button onClick={() => onDeleteExpense(buildingFilter, e.id)} style={{ background: "transparent", border: "none", color: DANGER, padding: 4 }}>
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ---------------- monthly collection ---------------- */
+function CollectionView({ buildings, onPay }) {
+  const [buildingFilter, setBuildingFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const now = todayStr();
+  const curYm = now.slice(0, 7);
+
+  const relevant = buildings.filter(({ id }) => buildingFilter === "all" || id === buildingFilter);
+
+  const rows = relevant.flatMap(({ id, data }) =>
+    data.rooms
+      .filter((r) => !r.vacant)
+      .map((r) => {
+        const paidThisMonth = (r.payments || []).some((p) => p.type === "payment" && p.date && p.date.slice(0, 7) === curYm && (Number(p.total) || 0) > 0);
+        return { ...r, buildingId: id, buildingName: data.name, paidThisMonth };
+      })
+  ).filter((r) => {
+    const q = search.trim();
+    if (!q) return true;
+    return (r.room + " " + (r.tenant.name || "")).includes(q);
+  });
+
+  const paidCount = rows.filter((r) => r.paidThisMonth).length;
+  const totalCount = rows.length;
+  const collectedAmount = rows.filter((r) => r.paidThisMonth).reduce((s, r) => s + (Number(r.tenant.rent) || 0), 0);
+  const pendingAmount = rows.filter((r) => !r.paidThisMonth).reduce((s, r) => s + (Number(r.tenant.rent) || 0), 0);
+
+  const sorted = [...rows].sort((a, b) => {
+    if (a.paidThisMonth !== b.paidThisMonth) return a.paidThisMonth ? 1 : -1;
+    return a.room.localeCompare(b.room, "ar", { numeric: true });
+  });
+
+  return (
+    <div>
+      <SectionTitle title="التحصيل الشهري" subtitle={`متابعة الدفعات لهذا الشهر — ${paidCount} من ${totalCount} دفعوا`} />
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 16 }}>
+        <KpiCard label="تم تحصيله هذا الشهر" value={fmtMoney(collectedAmount)} icon={Check} color={SUCCESS} />
+        <KpiCard label="متبقٍ تحصيله" value={fmtMoney(pendingAmount)} icon={AlertCircle} color={DANGER} />
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+        <select value={buildingFilter} onChange={(e) => setBuildingFilter(e.target.value)} style={{ ...inputStyle, width: "auto", flex: "1 1 140px" }}>
+          <option value="all">كلا العمارتين</option>
+          {buildings.map((b) => <option key={b.id} value={b.id}>{b.data.name}</option>)}
+        </select>
+        <div style={{ position: "relative", flex: "2 1 200px" }}>
+          <Search size={15} color={MUTED} style={{ position: "absolute", right: 12, top: 11 }} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ابحث برقم الوحدة أو اسم المستأجر..."
+            style={{ ...inputStyle, padding: "10px 36px 10px 12px" }}
+          />
+        </div>
+      </div>
+
+      {sorted.length === 0 ? (
+        <EmptyState text="لا توجد وحدات مؤجرة مطابقة." />
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {sorted.map((r) => (
+            <div key={r.id} style={cardStyle({ padding: "12px 14px", display: "flex", justifyContent: "space-between", alignItems: "center" })}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{
+                  width: 26, height: 26, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center",
+                  background: r.paidThisMonth ? SUCCESS + "1A" : DANGER + "1A", flexShrink: 0,
+                }}>
+                  {r.paidThisMonth ? <Check size={14} color={SUCCESS} /> : <X size={14} color={DANGER} />}
+                </div>
+                <div>
+                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{r.tenant.name || "—"}</div>
+                  <div style={{ fontSize: 11, color: MUTED }}>{r.buildingName} · وحدة {r.room} · {fmtMoney(r.tenant.rent)}</div>
+                </div>
+              </div>
+              {r.paidThisMonth ? (
+                <span style={{ fontSize: 11.5, fontWeight: 700, color: SUCCESS }}>دفع هالشهر</span>
+              ) : (
+                <button onClick={() => onPay(r.buildingId, r.id)} style={btnStyle(PRIMARY, "#fff", true)}>
+                  <Wallet size={13} /> تسجيل دفعة
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<AuthGate />);
+</script>
+</body>
+</html>
